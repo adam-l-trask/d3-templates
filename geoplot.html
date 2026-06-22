@@ -190,9 +190,9 @@
       <label class="field">
         <span>Map projection</span>
         <select id="proj">
-          <option value="equirectangular">Equirectangular</option>
+          <option value="equirectangular" selected>Equirectangular</option>
           <option value="mercator">Mercator</option>
-          <option value="naturalEarth" selected>Natural Earth</option>
+          <option value="naturalEarth">Natural Earth</option>
           <option value="orthographic">Orthographic (globe)</option>
         </select>
       </label>
@@ -257,7 +257,7 @@
       <p class="hint-text">Longitude sweeps <b>east</b> from “from” to “to”, so order matters: 330→30 wraps the antimeridian (same box as −30→30). Both −180…180 and 0…360 work.</p>
       <div class="row">
         <button class="btn" id="apply-bounds">Apply bounds</button>
-        <button class="btn" id="clear-bounds">Whole globe</button>
+        <button class="btn" id="clear-bounds">Reset Bounds</button>
       </div>
     </div>
   </aside>
@@ -269,18 +269,18 @@
       <div class="tb-group">
         <label class="inline">Aspect
           <select id="plot-aspect">
-            <option value="0" selected>Fit window</option>
+            <option value="0">Fit window</option>
             <option value="1">1 : 1</option>
             <option value="1.3333">4 : 3</option>
             <option value="1.5">3 : 2</option>
             <option value="1.7778">16 : 9</option>
-            <option value="2">2 : 1</option>
+            <option value="2" selected>2 : 1</option>
             <option value="0.75">3 : 4</option>
           </select>
         </label>
         <label class="inline">Size
-          <input type="range" id="plot-size" min="0.4" max="1" step="0.05" value="1">
-          <span id="plot-size-val">100%</span>
+          <input type="range" id="plot-size" min="0.4" max="1" step="0.05" value="0.85">
+          <span id="plot-size-val">85%</span>
         </label>
       </div>
       <div class="tb-sep"></div>
@@ -347,11 +347,11 @@ const FRAME_STEPS = 72;    // points per edge when densifying a bounded frame
    scale/translate live in PIXEL space; rotate lives in geographic space.
    ========================================================================== */
 const state = {
-  type:"naturalEarth", res:"110m",
+  type:"equirectangular", res:"110m",
   rotate:[0,0,0], scale:null, translate:null,   // null => fit on first render
   bounds:null,                                   // [[lonW,latS],[lonE,latN]] | null
   showBorders:true, showGraticule:true, graticuleStep:30,
-  plotAspect:0, plotSize:1,   // 0 aspect = fit window; size = fraction of canvas
+  plotAspect:2, plotSize:0.85,   // 0 aspect = fit window; size = fraction of canvas
   mode:"pan",
   color:{ ocean:"#e8eef2", land:"#f1ece2", coast:"#6f6a60", border:"#b7afa1", grat:"#9a958a" },
   layers:[],          // trajectory layers: {id,name,type,coordinates,data,style}
@@ -429,13 +429,39 @@ function currentProjection(){
 // The drawing area within the canvas. "Plot size" insets the map (margins),
 // and the aspect ratio constrains its shape — both independent of zoom, which
 // only governs *which* geography is shown.
+// Legend geometry. The legend lives in a reserved strip to the RIGHT of the map
+// (never overlapping it). These helpers are the single source of truth shared by
+// plotRect (which subtracts the strip), renderLegend (which draws in it), and
+// figureRect (which spans both for export).
+function legendItems(){ return state.layers.filter(L=>L.style.visible && L.name); }
+function legendMetrics(){
+  const items = legendItems();
+  if(!state.showLegend || !items.length) return null;
+  const pad=8, sw=16, textGap=6, lh=16, gap=12;
+  const maxChars = items.reduce((m,L)=>Math.max(m, L.name.length), 0);
+  const boxW = pad + sw + textGap + Math.min(170, Math.ceil(maxChars*6.2)) + pad;
+  const boxH = items.length*lh + pad*2 - 4;
+  return { items, pad, sw, textGap, lh, gap, boxW, boxH };
+}
+function legendWidth(){ const m=legendMetrics(); return m ? m.gap + m.boxW : 0; }
+
 function plotRect(){
-  const a=state.plotAspect, s=state.plotSize;
+  // The MAP box. When a legend is shown we reserve its width on the right and
+  // keep the (map + legend) group centred, so the map keeps its aspect ratio and
+  // simply shrinks to make room rather than being drawn over.
+  const a=state.plotAspect, s=state.plotSize, lw=legendWidth();
+  const availW=Math.max(40, W*s - lw), availH=H*s;
   let w,h;
-  if(!a){ w=W*s; h=H*s; }
-  else { const availW=W*s, availH=H*s;
-    if(availW/availH > a){ h=availH; w=h*a; } else { w=availW; h=w/a; } }
-  return { x:(W-w)/2, y:(H-h)/2, w, h };
+  if(!a){ w=availW; h=availH; }
+  else { if(availW/availH > a){ h=availH; w=h*a; } else { w=availW; h=w/a; } }
+  const groupW = w + lw;
+  return { x:(W-groupW)/2, y:(H-h)/2, w, h };
+}
+// Full figure bounds (map + legend strip) — the region exported to SVG/PNG.
+function figureRect(){
+  const r=plotRect(), m=legendMetrics();
+  if(!m) return { x:r.x, y:r.y, w:r.w, h:r.h };
+  return { x:r.x, y:r.y, w:r.w + m.gap + m.boxW, h:Math.max(r.h, m.boxH) };
 }
 
 function fitView(){
@@ -673,21 +699,22 @@ function renderTrajectories(proj){
 }
 
 function renderLegend(){
-  const items = state.layers.filter(L=>L.style.visible && L.name);
   gLegend.selectAll("*").remove();
-  if(!state.showLegend || !items.length){ return; }
+  const m = legendMetrics();
+  if(!m) return;
   const r = plotRect();
-  const pad=8, lh=16, sw=14;
-  const boxW = 12 + sw + 6 + items.reduce((m,L)=>Math.max(m, L.name.length),0)*6.2 + 8;
-  const x = r.x + r.w - boxW - 12, y = r.y + 12;
+  // Sit in the reserved strip just right of the map box, vertically centred
+  // against the map (falling back to the map's top edge if the legend is taller).
+  const x = r.x + r.w + m.gap;
+  const y = r.y + Math.max(0, (r.h - m.boxH)/2);
   const g = gLegend.attr("transform",`translate(${x},${y})`);
-  g.append("rect").attr("width",boxW).attr("height", items.length*lh + pad*2 - 4)
+  g.append("rect").attr("width",m.boxW).attr("height",m.boxH)
    .attr("rx",6).attr("fill","#ffffffea").attr("stroke","#e7e4dc");
-  items.forEach((L,i)=>{
-    const yy = pad + i*lh + 8;
-    g.append("line").attr("x1",pad).attr("y1",yy).attr("x2",pad+sw).attr("y2",yy)
+  m.items.forEach((L,i)=>{
+    const yy = m.pad + i*m.lh + 8;
+    g.append("line").attr("x1",m.pad).attr("y1",yy).attr("x2",m.pad+m.sw).attr("y2",yy)
      .attr("stroke",L.style.color).attr("stroke-width", Math.max(2,L.style.width));
-    g.append("text").attr("x",pad+sw+6).attr("y",yy+3.5)
+    g.append("text").attr("x",m.pad+m.sw+m.textGap).attr("y",yy+3.5)
      .attr("font-family","ui-sans-serif,system-ui").attr("font-size",11).attr("fill","#20201d")
      .text(L.name);
   });
@@ -747,6 +774,7 @@ function loadLayers(spec, append){
     .flat()
     .filter(L=>Array.isArray(L.coordinates) && L.coordinates.length);
   state.layers = append ? state.layers.concat(norm) : norm;
+  state.scale=null;   // legend strip width depends on the layer set; re-fit
   render(); renderLayerList();
   return true;
 }
@@ -1082,7 +1110,13 @@ function applyBoundsFromFields(){
 
 // "Whole globe": reset only the lon/lat bounds back to the full world.
 function resetBounds(){
-  state.bounds=null; state.scale=null; setBoundsFields(DEFAULT_BOUNDS); render();
+  // Full return to the default window: clear the bounds box AND zero the
+  // rotation. fitView() deliberately preserves rotation for a null-bounds view
+  // (so zoom-out / resize don't snap orientation), so without this an earlier
+  // pan/zoom would leave the globe rotated — whole world visible but not the
+  // canonical -180..180 / -90..90 framing the fields claim.
+  state.bounds=null; state.rotate=[0,0,0]; state.scale=null;
+  setBoundsFields(DEFAULT_BOUNDS); render();
 }
 
 // "Reset view": restore layers, colours, and bounds to defaults (and the view
@@ -1091,13 +1125,13 @@ function resetBounds(){
 function resetView(){
   state.showBorders=true; state.showGraticule=true; state.graticuleStep=30;
   state.color={...DEFAULT_STYLE};
-  state.bounds=null; state.scale=null;
-  state.plotAspect=0; state.plotSize=1;
+  state.bounds=null; state.rotate=[0,0,0]; state.scale=null;
+  state.plotAspect=2; state.plotSize=0.85;
   $("borders").checked=true; $("graticule").checked=true; $("grat-step").value=30;
   $("c-ocean").value=DEFAULT_STYLE.ocean; $("c-land").value=DEFAULT_STYLE.land;
   $("c-coast").value=DEFAULT_STYLE.coast; $("c-border").value=DEFAULT_STYLE.border;
   $("c-grat").value=DEFAULT_STYLE.grat;
-  $("plot-aspect").value="0"; $("plot-size").value=1; $("plot-size-val").textContent="100%";
+  $("plot-aspect").value="2"; $("plot-size").value=0.85; $("plot-size-val").textContent="85%";
   setBoundsFields(DEFAULT_BOUNDS);
   render();
 }
@@ -1146,7 +1180,7 @@ function renderLayerList(){
   state.layers.forEach(L=>{
     const row=document.createElement("div"); row.className="layer-row";
     const vis=document.createElement("input"); vis.type="checkbox"; vis.checked=L.style.visible; vis.title="show / hide";
-    vis.addEventListener("change",()=>{ L.style.visible=vis.checked; render(); });
+    vis.addEventListener("change",()=>{ L.style.visible=vis.checked; state.scale=null; render(); });
     const col=document.createElement("input"); col.type="color"; col.value=L.style.color; col.title="colour";
     col.addEventListener("input",()=>{ L.style.color=col.value; render(); });
     const name=document.createElement("span"); name.className="ln"; name.textContent=L.name; name.title=L.name;
@@ -1154,7 +1188,7 @@ function renderLayerList(){
     w.min="0.2"; w.max="8"; w.step="0.1"; w.title="line width";
     w.addEventListener("input",()=>{ const v=parseFloat(w.value); if(isFinite(v)){ L.style.width=v; render(); } });
     const del=document.createElement("button"); del.className="layer-del"; del.textContent="×"; del.title="remove this trajectory";
-    del.addEventListener("click",()=>{ state.layers=state.layers.filter(x=>x!==L); render(); renderLayerList(); });
+    del.addEventListener("click",()=>{ state.layers=state.layers.filter(x=>x!==L); state.scale=null; render(); renderLayerList(); });
     row.append(vis,col,name,w,del);
     host.appendChild(row);
   });
@@ -1165,7 +1199,7 @@ function readFile(file){
 }
 $("load-file").addEventListener("click", ()=>$("file-input").click());
 $("file-input").addEventListener("change", e=>{ readFile(e.target.files[0]); e.target.value=""; });
-$("legend-toggle").addEventListener("change", e=>{ state.showLegend=e.target.checked; render(); });
+$("legend-toggle").addEventListener("change", e=>{ state.showLegend=e.target.checked; state.scale=null; render(); });
 $("markers-toggle").addEventListener("change", e=>{
   const on=e.target.checked; state.layers.forEach(L=>L.style.markers=on); render();
 });
@@ -1200,7 +1234,7 @@ $("reset").addEventListener("click", resetView);           // reset layers, colo
 // Export crops to the plot area, so a chosen aspect / size yields clean figure
 // dimensions instead of the whole (arbitrary) window.
 function serializeSVG(){
-  const r = plotRect();
+  const r = figureRect();
   const clone = mapNode.cloneNode(true);
   clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
   clone.setAttribute("width", Math.round(r.w)); clone.setAttribute("height", Math.round(r.h));
@@ -1221,7 +1255,7 @@ $("dl-svg").addEventListener("click", ()=>{
 });
 $("dl-png").addEventListener("click", ()=>{
   const scale=+$("png-scale").value;
-  const r=plotRect();
+  const r=figureRect();
   const svgStr=serializeSVG();
   const img=new Image();
   img.onload=()=>{
