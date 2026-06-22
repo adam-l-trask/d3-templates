@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Geoplot — a lightweight d3-geo plotter</title>
+<title>Cartoplot — a lightweight d3-geo plotter</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
 <style>
@@ -191,7 +191,7 @@
 </head>
 <body>
   <aside class="rail">
-    <div class="brand"><h1>Geoplot</h1><span class="v">d3-geo · no plotly</span></div>
+    <div class="brand"><h1>Cartoplot</h1><span class="v">d3 based geographic plots</span></div>
     <p class="tagline">A lightweight cartographic plotter. Drag to roam, box to zoom, export for print.</p>
 
     <div class="group">
@@ -327,7 +327,7 @@
        { "layers": [ { "type":"path", "name":"...", "coordinates":[[lon,lat],...],
                        "style":{"color":"#...","width":1.5},
                        "data":{"time":[...],"altitude":[...]} } ] }            -->
-  <script type="application/json" id="geoplot-data"></script>
+  <script type="application/json" id="cartoplot-data"></script>
 
 <script>
 "use strict";
@@ -855,9 +855,9 @@ function saveHtml(){
   const spec = { config: currentConfig(), layers: serializeLayers() };
   const payload = JSON.stringify(spec).replace(/</g,"\\u003c");   // keep the closing script tag safe
   const html = PRISTINE_HTML.replace(
-    /(<script type="application\/json" id="geoplot-data">)([\s\S]*?)(<\/script>)/,
+    /(<script type="application\/json" id="cartoplot-data">)([\s\S]*?)(<\/script>)/,
     (m,a,b,c)=>a+payload+c);
-  download(new Blob([html],{type:"text/html"}), "geoplot-figure.html");
+  download(new Blob([html],{type:"text/html"}), "cartoplot-figure.html");
 }
 
 // Push the full state into the left-rail / top-bar controls (after a restore).
@@ -1290,7 +1290,7 @@ function download(blob, name){ const a=document.createElement("a");
   a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
 
 $("dl-svg").addEventListener("click", ()=>{
-  download(new Blob([serializeSVG()],{type:"image/svg+xml"}), `geoplot-${state.type}.svg`);
+  download(new Blob([serializeSVG()],{type:"image/svg+xml"}), `cartoplot-${state.type}.svg`);
 });
 $("dl-png").addEventListener("click", ()=>{
   const scale=+$("png-scale").value;
@@ -1300,7 +1300,7 @@ $("dl-png").addEventListener("click", ()=>{
   img.onload=()=>{
     const c=document.createElement("canvas"); c.width=Math.round(r.w*scale); c.height=Math.round(r.h*scale);
     const ctx=c.getContext("2d"); ctx.drawImage(img,0,0,c.width,c.height);
-    c.toBlob(b=>download(b,`geoplot-${state.type}@${scale}x.png`),"image/png");
+    c.toBlob(b=>download(b,`cartoplot-${state.type}@${scale}x.png`),"image/png");
   };
   img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svgStr);
 });
@@ -1327,9 +1327,9 @@ new ResizeObserver(()=>resize()).observe(document.getElementById("wrap"));
   render();        // draws frame/ocean immediately
   setBoundsFields(DEFAULT_BOUNDS);   // show the default bounds in the boxes
   // load any trajectory data embedded by a generator (e.g. a Python script)
-  const tag=document.getElementById("geoplot-data");
+  const tag=document.getElementById("cartoplot-data");
   if(tag && tag.textContent.trim()){
-    try{ loadLayers(JSON.parse(tag.textContent)); }catch(e){ console.warn("embedded geoplot-data is not valid JSON", e); }
+    try{ loadLayers(JSON.parse(tag.textContent)); }catch(e){ console.warn("embedded cartoplot-data is not valid JSON", e); }
   }
   renderLayerList();
   ensureData();    // fills land/borders when fetched

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""geoplot_demo.py — generate a batch of trajectories and bake them into a
-self-contained Geoplot HTML figure.
+"""cartoplot_demo.py — generate a batch of trajectories and bake them into a
+self-contained Cartoplot HTML figure.
 
 What it does
 ------------
 Builds ~20 great-circle airline routes between real airports, each carrying
 per-point tooltip data (elapsed minutes, altitude, ground speed), plus one
 filled polygon to show the "polygon" layer type, then embeds everything into the
-Geoplot template and writes a ready-to-open HTML file with the legend turned on.
+Cartoplot template and writes a ready-to-open HTML file with the legend turned on.
 
 Usage
 -----
-    python geoplot_demo.py                         # template: ./geoplot.html  ->  ./geoplot_demo.html
-    python geoplot_demo.py geoplot.html out.html   # explicit template / output
+    python cartoplot_demo.py                         # template: ./cartoplot.html  ->  ./cartoplot_demo.html
+    python cartoplot_demo.py cartoplot.html out.html   # explicit template / output
 
-It only needs the standard library. (The geoplot_embed helper also accepts
+It only needs the standard library. (The cartoplot_embed helper also accepts
 pandas DataFrames via layer_from_dataframe if you'd rather feed it a frame.)
 """
 import math
@@ -23,7 +23,7 @@ import sys
 
 # Make sure we can import the sibling helper regardless of the working directory.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from geoplot_embed import path_layer, embed
+from cartoplot_embed import path_layer, embed
 
 
 # --- airports: name -> (lon, lat) ------------------------------------------
@@ -186,8 +186,8 @@ def build_layers():
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    template = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "geoplot.html")
-    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "geoplot_demo.html")
+    template = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "cartoplot.html")
+    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "cartoplot_demo.html")
 
     layers = build_layers()
     # Open with the legend shown (there are enough routes that it scrolls on a

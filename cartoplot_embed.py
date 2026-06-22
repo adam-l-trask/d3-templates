@@ -1,28 +1,28 @@
-"""geoplot_embed.py — embed trajectory layers into a Geoplot HTML file.
+"""cartoplot_embed.py — embed trajectory layers into a Cartoplot HTML file.
 
-The Geoplot HTML has an empty data block:
+The Cartoplot HTML has an empty data block:
 
-    <script type="application/json" id="geoplot-data"></script>
+    <script type="application/json" id="cartoplot-data"></script>
 
 This helper writes JSON into that block, producing a self-contained HTML figure.
 You never hand-write the JSON — pass arrays or a DataFrame and it builds the spec.
 
 Quick start
 -----------
-    from geoplot_embed import path_layer, embed
+    from cartoplot_embed import path_layer, embed
 
     layers = [
         path_layer(lons, lats, name="Flight 123",
                    color="#c1572e", width=1.6,
                    time=timestamps, altitude=altitudes),  # extra fields -> tooltips
     ]
-    embed("geoplot.html", layers, "geoplot_flight.html")
+    embed("cartoplot.html", layers, "cartoplot_flight.html")
 
 From a pandas DataFrame
 -----------------------
-    from geoplot_embed import layer_from_dataframe, embed
+    from cartoplot_embed import layer_from_dataframe, embed
     layer = layer_from_dataframe(df, lon="lon", lat="lat", name="Track A")
-    embed("geoplot.html", [layer], "out.html")
+    embed("cartoplot.html", [layer], "out.html")
 
 Schema (scoped to trajectory layers; wrapped in an object so config can be
 added later without breaking existing files):
@@ -93,11 +93,11 @@ def layer_from_dataframe(df, lon="lon", lat="lat", name=None, color=None,
 
 
 _BLOCK = re.compile(
-    r'(<script type="application/json" id="geoplot-data">)(.*?)(</script>)', re.S)
+    r'(<script type="application/json" id="cartoplot-data">)(.*?)(</script>)', re.S)
 
 
 def embed(template_path, layers, out_path=None, config=None):
-    """Inject `layers` into the Geoplot template and write `out_path`.
+    """Inject `layers` into the Cartoplot template and write `out_path`.
 
     If out_path is omitted, the template is overwritten in place.
 
@@ -109,8 +109,8 @@ def embed(template_path, layers, out_path=None, config=None):
     with open(template_path, encoding="utf-8") as f:
         html = f.read()
     if not _BLOCK.search(html):
-        raise ValueError("Could not find the <script id=\"geoplot-data\"> block "
-                         "in the template — is this a Geoplot HTML file?")
+        raise ValueError("Could not find the <script id=\"cartoplot-data\"> block "
+                         "in the template — is this a Cartoplot HTML file?")
     spec = {"layers": list(layers)}
     if config:
         spec["config"] = config
@@ -135,5 +135,5 @@ if __name__ == "__main__":
         t.append(f"T+{int(f*7*60)}min")
     demo = path_layer(lons, lats, name="NYC -> LHR", color="#c1572e", width=1.8,
                       time=t, altitude=alt)
-    embed("geoplot.html", [demo], "geoplot_demo.html")
-    print("wrote geoplot_demo.html")
+    embed("cartoplot.html", [demo], "cartoplot_demo.html")
+    print("wrote cartoplot_demo.html")
