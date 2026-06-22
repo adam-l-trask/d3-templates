@@ -96,18 +96,26 @@ _BLOCK = re.compile(
     r'(<script type="application/json" id="geoplot-data">)(.*?)(</script>)', re.S)
 
 
-def embed(template_path, layers, out_path=None):
+def embed(template_path, layers, out_path=None, config=None):
     """Inject `layers` into the Geoplot template and write `out_path`.
 
     If out_path is omitted, the template is overwritten in place.
+
+    `config` (optional dict) sets the figure's opening state — any of:
+    type, res, rotate, bounds, showBorders, showGraticule, graticuleStep,
+    plotAspect, plotSize, color, showLegend. Only the keys you pass are applied;
+    everything else falls back to the figure's defaults.
     """
     with open(template_path, encoding="utf-8") as f:
         html = f.read()
     if not _BLOCK.search(html):
         raise ValueError("Could not find the <script id=\"geoplot-data\"> block "
                          "in the template — is this a Geoplot HTML file?")
+    spec = {"layers": list(layers)}
+    if config:
+        spec["config"] = config
     # Compact JSON; escape '<' so an embedded string can never close the tag.
-    payload = json.dumps({"layers": list(layers)}, separators=(",", ":")).replace("<", r"\u003c")
+    payload = json.dumps(spec, separators=(",", ":")).replace("<", r"\u003c")
     html = _BLOCK.sub(lambda m: m.group(1) + payload + m.group(3), html, count=1)
     out_path = out_path or template_path
     with open(out_path, "w", encoding="utf-8") as f:
