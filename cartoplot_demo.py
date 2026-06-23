@@ -14,6 +14,11 @@ Usage
     python cartoplot_demo.py                         # template: ./cartoplot.html  ->  ./cartoplot_demo.html
     python cartoplot_demo.py cartoplot.html out.html   # explicit template / output
 
+It writes two figures: the normal CDN-backed one, and — if the offline assets
+are available (it offers to download them once) — a fully self-contained
+"cartoplot_demo_offline.html" that opens with no internet. See the offline notes
+in cartoplot_embed.embed() / download_offline_assets().
+
 It only needs the standard library. (The cartoplot_embed helper also accepts
 pandas DataFrames via layer_from_dataframe if you'd rather feed it a frame.)
 """
@@ -23,7 +28,9 @@ import sys
 
 # Make sure we can import the sibling helper regardless of the working directory.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cartoplot_embed import path_layer, polygon_layer, embed
+from cartoplot_embed import (path_layer, polygon_layer, embed,
+                             download_offline_assets, OFFLINE_ASSETS,
+                             ASSET_DIR_DEFAULT)
 
 
 # --- airports: name -> (lon, lat) ------------------------------------------
@@ -165,10 +172,11 @@ def build_layers():
         dist = haversine_km(lon1, lat1, lon2, lat2)
         elapsed, alt, spd = flight_profile(80, dist)
         color = hsl_hex((i / n) % 1.0, 0.58, 0.45)
+        styles = ("solid", "dash", "dot", "long-dash", "long-dash-dot")
         layers.append(path_layer(
             [c[0] for c in coords], [c[1] for c in coords],
             name=f"{origin} \u2192 {dest}",
-            color=color, width=1.5,
+            color=color, width=1.5, line_style=styles[i % len(styles)],
             elapsed_min=elapsed, alt_ft=alt, speed_kt=spd,
         ))
 
@@ -185,6 +193,12 @@ def build_layers():
     return layers
 
 
+def _assets_ready(assets_dir):
+    """True when all four offline assets are present in assets_dir."""
+    return all(os.path.exists(os.path.join(assets_dir, fn))
+               for fn, _url in OFFLINE_ASSETS.values())
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     template = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "cartoplot.html")
@@ -194,11 +208,41 @@ def main():
     # Open with the legend shown (there are enough routes that it scrolls on a
     # short window) on an equirectangular 2:1 figure.
     config = {"type": "equirectangular", "showLegend": True, "showGraticule": True}
-    embed(template, layers, out, config=config)
 
+    # ---- 1. ONLINE figure -------------------------------------------------
+    # The default build. Small file; pulls d3/topojson/atlas from a CDN when
+    # opened, so it needs internet on first view.
+    embed(template, layers, out, config=config)
     pts = sum(len(L["coordinates"]) for L in layers)
-    print(f"Wrote {out}")
-    print(f"  {len(layers)} layers, {pts} total points")
+    print(f"Wrote {out}  (online: {len(layers)} layers, {pts} points)")
+
+    # ---- 2. OFFLINE figure ------------------------------------------------
+    # A fully self-contained build: d3 + topojson are inlined and the world-atlas
+    # vectors are embedded, so the HTML opens with no network at all.
+    #
+    # Step one (run once, needs internet) populates an assets folder next to the
+    # template; step two embeds from it. Here we auto-download if it's missing and
+    # skip gracefully if there's no connection.
+    assets_dir = os.path.join(here, ASSET_DIR_DEFAULT)
+    offline_out = os.path.join(here, "cartoplot_demo_offline.html")
+
+    if not _assets_ready(assets_dir):
+        print(f"Fetching offline assets into {assets_dir}{os.sep} (needs internet)…")
+        try:
+            download_offline_assets(assets_dir)
+        except Exception as e:                       # noqa: BLE001 — keep the demo runnable offline
+            print(f"  could not download assets ({e.__class__.__name__}): {e}")
+
+    if _assets_ready(assets_dir):
+        embed(template, layers, offline_out, config=config, offline=True)
+        size_mb = os.path.getsize(offline_out) / 1_048_576
+        print(f"Wrote {offline_out}  (offline: self-contained, {size_mb:.1f} MB)")
+    else:
+        print("Skipped offline build — populate the assets folder first, e.g.:")
+        print(f"    python -c \"import cartoplot_embed as c; c.download_offline_assets('{assets_dir}')\"")
+        print("  (or drop d3.min.js, topojson.min.js, countries-110m.json and "
+              "countries-50m.json in by hand — see OFFLINE_ASSETS for source URLs).")
+
     print(f"  template: {template}")
 
 
