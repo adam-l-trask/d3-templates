@@ -129,7 +129,9 @@
   .legend-box{position:absolute;z-index:5;display:none;box-sizing:border-box;
     background:var(--legend-bg);border:1px solid var(--hair);border-radius:6px;
     padding:6px 0;overflow-y:auto;overflow-x:hidden;backdrop-filter:blur(1px);
-    font:11px ui-sans-serif,system-ui;color:var(--ink)}
+    font:11px ui-sans-serif,system-ui;color:var(--ink);
+    cursor:move;user-select:none;-webkit-user-select:none}
+  .legend-box.dragging{box-shadow:0 4px 14px #0003;border-color:var(--accent)}
   .legend-box .lg-row{display:flex;align-items:center;gap:6px;padding:2px 8px;min-width:0}
   .legend-box .lg-swatch{flex:none;width:22px;overflow:visible}
   .legend-box .lg-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -172,6 +174,7 @@
   .topbar input[type=range]{width:92px;margin:0}
   .topbar button.btn{flex:0 0 auto;padding:6px 12px}
   .topbar #plot-size-val{font-family:var(--mono);font-size:11px;color:var(--ink);min-width:34px}
+  .topbar .png-dims{font-family:var(--mono);font-size:10px;color:var(--faint);white-space:nowrap;min-width:62px}
   .topbar .seg{flex:0 0 auto}
   .topbar .seg button{padding:6px 11px}
   .canvas-wrap{flex:1;position:relative;min-height:0;overflow:hidden;background:
@@ -213,7 +216,7 @@
 </head>
 <body>
   <aside class="rail">
-    <div class="brand"><h1>Cartoplot</h1><span class="v">d3 based geographic plots</span></div>
+    <div class="brand"><h1>Cartoplot</h1><span class="v">d3 based geo plots</span></div>
     <p class="tagline">A lightweight cartographic plotter. Drag to roam, box to zoom, export for print.</p>
 
     <div class="group">
@@ -273,6 +276,16 @@
       <p class="hint-text">Drop a <b>.json</b> / <b>.geojson</b> onto the map, or embed from Python. Coordinates are <b>[lon, lat]</b>.</p>
       <label class="toggle"><span>Legend</span>
         <input type="checkbox" id="legend-toggle"><i class="switch"></i></label>
+      <label class="field" id="legend-loc-field" style="margin:2px 0 8px"><span>Legend position</span>
+        <select id="legend-loc">
+          <option value="right-outside">right-outside</option>
+          <option value="left-outside">left-outside</option>
+          <option value="top-left">top-left</option>
+          <option value="top-right">top-right</option>
+          <option value="bottom-left">bottom-left</option>
+          <option value="bottom-right">bottom-right</option>
+          <option value="custom">custom (drag)</option>
+        </select></label>
       <label class="toggle" style="margin-bottom:8px"><span>Vertex markers</span>
         <input type="checkbox" id="markers-toggle"><i class="switch"></i></label>
       <div id="layer-list"></div>
@@ -298,20 +311,9 @@
       </div>
       <span class="tb-spacer"></span>
       <div class="tb-group">
-        <label class="inline">Aspect
-          <select id="plot-aspect">
-            <option value="0">Fit window</option>
-            <option value="1">1 : 1</option>
-            <option value="1.3333">4 : 3</option>
-            <option value="1.5">3 : 2</option>
-            <option value="1.7778">16 : 9</option>
-            <option value="2" selected>2 : 1</option>
-            <option value="0.75">3 : 4</option>
-          </select>
-        </label>
         <label class="inline">Size
-          <input type="range" id="plot-size" min="0.4" max="1" step="0.05" value="0.85">
-          <span id="plot-size-val">85%</span>
+          <input type="range" id="plot-size" min="0.4" max="1" step="0.01" value="0.95">
+          <span id="plot-size-val">95%</span>
         </label>
       </div>
       <div class="tb-sep"></div>
@@ -320,10 +322,11 @@
         <button class="btn primary" id="dl-svg">SVG</button>
         <button class="btn" id="dl-png">PNG</button>
         <select id="png-scale">
-          <option value="2" selected>2×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
           <option value="4">4×</option>
-          <option value="1">1×</option>
         </select>
+        <span id="png-dims" class="png-dims" title="PNG output size at this scale"></span>
         <div class="tb-sep"></div>
         <button class="btn" id="save-html" title="Save a self-contained HTML with your current trajectories and settings">Save HTML</button>
       </div>
@@ -386,11 +389,14 @@ const state = {
   rotate:[0,0,0], scale:null, translate:null,   // null => fit on first render
   bounds:null,                                   // [[lonW,latS],[lonE,latN]] | null
   showBorders:true, showGraticule:true, graticuleStep:30,
-  plotAspect:2, plotSize:0.85,   // 0 aspect = fit window; size = fraction of canvas
+  plotSize:0.95,   // fraction of the canvas the plot fills (fit-window, geographic ratio preserved)
   mode:"pan",
   color:{ ocean:"#e8eef2", land:"#f1ece2", coast:"#6f6a60", border:"#b7afa1", grat:"#9a958a" },
   layers:[],          // trajectory layers: {id,name,type,coordinates,data,style}
   showLegend:false,
+  legendLoc:"right-outside",   // placement: a named string OR [nx,ny] normalized
+                               // top-left in the map box (custom). Named values:
+                               // right-outside|left-outside|top-left|top-right|bottom-left|bottom-right
   theme:"light",      // "light" | "dark" — UI + basemap palette (not trajectories)
 };
 
@@ -486,7 +492,7 @@ function legendItems(){ return state.layers.filter(L=>L.style.visible && L.name)
 function legendMetrics(){
   const items = legendItems();
   if(!state.showLegend || !items.length) return null;
-  const pad=8, sw=22, textGap=6, lh=16, gap=9;
+  const pad=8, sw=22, textGap=6, lh=16, gap=18;
   const maxChars = items.reduce((m,L)=>Math.max(m, L.name.length), 0);
   const boxW = pad + sw + textGap + Math.min(170, Math.ceil(maxChars*6.2)) + pad;
   const boxH = items.length*lh + pad*2 - 4;
@@ -494,21 +500,63 @@ function legendMetrics(){
 }
 function legendWidth(){ const m=legendMetrics(); return m ? m.gap + m.boxW : 0; }
 
+// Legend placement (MATLAB-style). Outside locations reserve a strip and reflow
+// the map; inside anchors + custom float over it with no reflow.
+const LEGEND_INSET = 12;        // px gap from the map edges for inside anchors
+const LEGEND_ANCHOR = {         // inside-corner anchors; [x,y] fraction of free space
+  "top-left":[0,0],    "top-right":[1,0],
+  "bottom-left":[0,1], "bottom-right":[1,1],
+};
+function legendIsOutside(loc){ loc=loc||state.legendLoc; return loc==="right-outside"||loc==="left-outside"; }
+// "east"|"west" when a strip must be reserved (legend shown AND an outside loc), else null.
+function legendSide(){
+  if(!legendMetrics()) return null;
+  if(state.legendLoc==="right-outside") return "east";
+  if(state.legendLoc==="left-outside") return "west";
+  return null;
+}
+// Single source of truth for the legend's box {x,y,w,h} in map/SVG pixel space,
+// for any consumer: screen overlay, SVG/PNG export, figure-bounds, and dragging.
+// mode: "screen"(default) | "full"(SVG, outside grows to show all) | "view"(PNG snapshot)
+function legendBox(mode){
+  const m = legendMetrics(); if(!m) return null;
+  const [mapL,mapR] = mapLeftRight(), [mapT,mapB] = mapTopBottom();
+  const mapW = mapR-mapL, mapH = mapB-mapT, w = m.boxW, loc = state.legendLoc;
+  const outside = legendIsOutside(loc);
+  const custom = Array.isArray(loc);
+  const avail = (outside || custom) ? mapH : Math.max(40, mapH - 2*LEGEND_INSET);
+  const h = (mode==="full" && outside) ? m.boxH : Math.min(m.boxH, avail);
+  let x, y;
+  if(loc==="right-outside"){ x = mapR + m.gap; y = mapT; }
+  else if(loc==="left-outside"){ x = mapL - m.gap - w; y = mapT; }
+  else if(custom){
+    x = mapL + loc[0]*mapW;
+    y = mapT + loc[1]*mapH;
+    // free placement — may sit partly outside the plot; only keep it on the canvas
+    x = Math.max(0, Math.min(W - w, x));
+    y = Math.max(0, Math.min(H - h, y));
+  } else {
+    const f = LEGEND_ANCHOR[loc] || [1,0.5];
+    x = mapL + LEGEND_INSET + f[0]*(mapW - 2*LEGEND_INSET - w);
+    y = mapT + LEGEND_INSET + f[1]*(avail - h);
+  }
+  return { x, y, w, h, mapL, mapR, mapT, mapB, mapW, mapH };
+}
+
 function plotRect(){
-  // The MAP box. When a legend is shown we reserve its width on the right and
-  // keep the (map + legend) group centred, so the map keeps its aspect ratio and
-  // simply shrinks to make room rather than being drawn over.
-  const a=state.plotAspect, s=state.plotSize;
+  // The MAP box. An OUTSIDE legend reserves its width on that side and the
+  // (map+legend) group stays centred. Inside/custom legends float over the map
+  // and reserve nothing. The map box always fills the Size-scaled canvas (minus
+  // any reserved strip); the map fits its own geographic ratio inside it.
+  const s=state.plotSize;
+  const side=legendSide();
   // Reserve legend width, but never let it crowd the map below a usable minimum.
-  // A very wide legend on a narrow window would otherwise collapse the plot area
-  // to near-zero and yield a degenerate fit the view can't recover from.
-  const lw=Math.min(legendWidth(), Math.max(0, W*s - 140));
-  const availW=Math.max(140, W*s - lw), availH=H*s;
-  let w,h;
-  if(!a){ w=availW; h=availH; }
-  else { if(availW/availH > a){ h=availH; w=h*a; } else { w=availW; h=w/a; } }
+  const lw = side ? Math.min(legendWidth(), Math.max(0, W*s - 140)) : 0;
+  const w=Math.max(140, W*s - lw), h=H*s;
   const groupW = w + lw;
-  return { x:(W-groupW)/2, y:(H-h)/2, w, h };
+  const gx = (W-groupW)/2;
+  const x = side==="west" ? gx + lw : gx;   // west strip sits left of the map
+  return { x, y:(H-h)/2, w, h };
 }
 // Full figure bounds (map + legend strip) — used for the complete SVG export.
 // Top/bottom y of the visible map content (the projected frame). The legend
@@ -520,17 +568,34 @@ function mapTopBottom(){
     return [frameBox[0][1], frameBox[1][1]];
   return [r.y+PAD, r.y+r.h-PAD];
 }
+// Left/right x of the visible map content (projected frame). The legend hugs the
+// map's RIGHT edge — not the padded rectangle — so it sits close to the plot.
+function mapLeftRight(){
+  const r = plotRect();
+  if(frameBox && isFinite(frameBox[0][0]) && isFinite(frameBox[1][0]))
+    return [frameBox[0][0], frameBox[1][0]];
+  return [r.x+PAD, r.x+r.w-PAD];
+}
 function figureRect(){
   const r=plotRect(), m=legendMetrics();
   if(!m) return { x:r.x, y:r.y, w:r.w, h:r.h };
-  const top = mapTopBottom()[0];                 // legend starts at the map's top
-  const bottom = Math.max(r.y + r.h, top + m.boxH + PAD);   // contain a tall legend
-  return { x:r.x, y:r.y, w:r.w + m.gap + m.boxW + PAD, h: bottom - r.y };  // +PAD = white margin right of legend
+  const lb=legendBox("full");                       // outside legends grow the figure; inside stay within
+  const left   = Math.min(r.x,        lb.x - PAD);
+  const right  = Math.max(r.x + r.w,  lb.x + lb.w + PAD);
+  const top    = Math.min(r.y,        lb.y - PAD);
+  const bottom = Math.max(r.y + r.h,  lb.y + lb.h + PAD);
+  return { x:left, y:top, w: right-left, h: bottom-top };
 }
-// Visible figure bounds — map height only, legend clipped to it (PNG snapshot).
+// Visible figure bounds — map height plus any legend that floats beyond it.
 function figureRectView(){
-  const r=plotRect(), lw=legendWidth();
-  return { x:r.x, y:r.y, w:r.w + lw + (lw?PAD:0), h:r.h };
+  const r=plotRect(), m=legendMetrics();
+  if(!m) return { x:r.x, y:r.y, w:r.w, h:r.h };
+  const lb=legendBox("view");
+  const left   = Math.min(r.x,       lb.x - PAD);
+  const right  = Math.max(r.x + r.w, lb.x + lb.w + PAD);
+  const top    = Math.min(r.y,       lb.y - PAD);
+  const bottom = Math.max(r.y + r.h, lb.y + lb.h + PAD);
+  return { x:left, y:top, w: right-left, h: bottom-top };
 }
 
 function fitView(){
@@ -687,6 +752,7 @@ const gLegend  = gRoot.append("g").attr("class","legend");    // drawn on top, n
 const elRubber = svg.append("rect").attr("class","rubber").style("display","none");
 
 let dragging=false;
+let lastProj=null;          // projection from the most recent render (reused by the cursor readout)
 
 // Coalesce rapid redraws (drag/pan) to one per animation frame.
 let rafPending=false;
@@ -699,6 +765,8 @@ function requestRender(){
 function render(){
   if(!state.scale) fitView();
   const proj = currentProjection();
+  lastProj = proj;
+  if(dragging) proj.precision(1.4);   // coarser resampling while dragging → fewer path points → smoother globe; the release render (dragging=false) is crisp again
   const path = d3.geoPath(proj);
   const frame = frameGeometry(state.bounds);
   const framePath = path(frame) || "";
@@ -729,6 +797,15 @@ function render(){
   trajDirty = true;   // hover index must be rebuilt after any view change
 
   document.getElementById("st-scale").textContent = Math.round(state.scale);
+  updatePngDims();
+}
+
+// Live "what pixels will the PNG be" hint = the snapshot figure box × scale.
+function updatePngDims(){
+  const el=document.getElementById("png-dims"); if(!el) return;
+  const scale=+$("png-scale").value || 1;
+  const r=figureRectView();
+  el.textContent = Math.round(r.w*scale) + "×" + Math.round(r.h*scale);
 }
 
 /* ============================================================================
@@ -775,6 +852,8 @@ function dashFor(style, w){
 }
 function renderTrajectories(proj){
   const tpath = trajPath(proj);
+  const azim = PROJ[state.type].azimuthal;            // globe? then cull back-of-sphere markers
+  const center = [-state.rotate[0], -state.rotate[1]];// geographic point at the disc centre
   const sel = gTraj.selectAll("g.layer").data(state.layers.filter(L=>L.style.visible), L=>L.id);
   sel.exit().remove();
   const ent = sel.enter().append("g").attr("class","layer");
@@ -795,13 +874,18 @@ function renderTrajectories(proj){
       .attr("stroke-linecap", dashFor(L.style.dash, L.style.width).cap)
       .attr("fill", L.type==="polygon" ? L.style.color : "none")
       .attr("fill-opacity", L.type==="polygon" ? (L.style.fillOpacity ?? 0.25) : null);
-    // optional vertex markers (kept off by default; capped so large tracks stay fast)
-    let marks = g.selectAll("circle").data(L.style.markers && L.coordinates.length<=2000 ? L.coordinates : []);
+    // optional vertex markers (off by default). No point cap — if the user turns
+    // them on for a dense track they simply read as a thicker line, which is fine;
+    // whether to show them is the user's call.
+    let marks = g.selectAll("circle").data(L.style.markers ? L.coordinates : []);
     marks.exit().remove();
     marks.enter().append("circle").merge(marks)
       .attr("r", L.style.markerSize||2)
       .attr("fill", L.style.color)
-      .each(function(c){ const xy=proj(c); const s=d3.select(this);
+      .each(function(c){ const s=d3.select(this);
+        // on a globe, a vertex more than 90° from the disc centre is on the far
+        // side and must be hidden (its raw projection still lands on the disc).
+        const xy = (azim && d3.geoDistance(center, c) > Math.PI/2) ? null : proj(c);
         if(xy){ s.attr("cx",xy[0]).attr("cy",xy[1]).style("display",null); } else s.style("display","none"); });
   });
 }
@@ -813,16 +897,14 @@ function renderLegend(){
   const box = document.getElementById("legend-box");
   const m = legendMetrics();
   if(!m){ box.style.display="none"; box.innerHTML=""; return; }
-  const r = plotRect();
-  const [mapTop, mapBot] = mapTopBottom();
-  // Reserved strip just right of the map, anchored to the map's actual top edge
-  // (not the padded rectangle). max-height caps it to the map's height, so an
-  // over-long legend gains a scrollbar instead of overrunning the figure; a
-  // short one simply hugs its content.
-  box.style.left = (r.x + r.w + m.gap) + "px";
-  box.style.top  = mapTop + "px";
-  box.style.width = m.boxW + "px";
-  box.style.maxHeight = (mapBot - mapTop) + "px";
+  const lb = legendBox();
+  // Placed by legendBox() — outside strip, inside anchor, or a dragged custom
+  // spot. max-height caps it so an over-long legend scrolls instead of overrunning.
+  box.style.left = lb.x + "px";
+  box.style.top  = lb.y + "px";
+  box.style.width = lb.w + "px";
+  box.style.maxHeight = lb.h + "px";
+  box.title = "Drag to move · double-click to reset";
   box.innerHTML = "";
   m.items.forEach(L=>{
     const row=document.createElement("div"); row.className="lg-row";
@@ -852,18 +934,14 @@ function drawSvgLegend(mode){            // mode: "full" (svg) | "view" (png sna
   gLegend.selectAll("*").remove();
   const m = legendMetrics();
   if(!m) return;
-  const r = plotRect();
-  const [mapTop, mapBot] = mapTopBottom();
-  const mapH = mapBot - mapTop;
-  const x = r.x + r.w + m.gap, y = mapTop;
-  const view = mode === "view";
-  const contentH = m.boxH;
-  const visibleH = view ? Math.min(contentH, mapH) : contentH;
-
-  // In "view" mode the PNG should mirror the screen, so take the scroll position
-  // straight from the live HTML legend overlay.
+  const lb = legendBox(mode);
+  const x = lb.x, y = lb.y;
+  const contentH = m.boxH, visibleH = lb.h;
+  // Outside legends grow the figure in "full" mode (every entry shown). Inside &
+  // PNG-snapshot legends are clipped to their box and scroll, mirroring the screen.
+  const liveScroll = (mode==="view") || !legendIsOutside();
   let offset = 0, scrollable = false;
-  if(view){
+  if(liveScroll && contentH > visibleH){
     const box = document.getElementById("legend-box");
     const denom = box.scrollHeight - box.clientHeight;
     const frac = denom > 1 ? box.scrollTop / denom : 0;
@@ -970,7 +1048,8 @@ function currentConfig(){
   return {
     type:state.type, res:state.res, rotate:state.rotate.slice(), bounds:state.bounds,
     showBorders:state.showBorders, showGraticule:state.showGraticule, graticuleStep:state.graticuleStep,
-    plotAspect:state.plotAspect, plotSize:state.plotSize, color:{...state.color}, showLegend:state.showLegend,
+    plotSize:state.plotSize, color:{...state.color}, showLegend:state.showLegend,
+    legendLoc:state.legendLoc,
     theme:state.theme,
   };
 }
@@ -983,11 +1062,11 @@ function applyConfig(cfg){
   if("showBorders" in cfg) state.showBorders=!!cfg.showBorders;
   if("showGraticule" in cfg) state.showGraticule=!!cfg.showGraticule;
   if(cfg.graticuleStep) state.graticuleStep=cfg.graticuleStep;
-  if("plotAspect" in cfg) state.plotAspect=cfg.plotAspect;
   if("plotSize" in cfg) state.plotSize=cfg.plotSize;
   if(cfg.color) Object.assign(state.color, cfg.color);
   if(cfg.theme){ applyTheme(cfg.theme); if(!cfg.color) state.color={...THEME[state.theme].palette}; }
   if("showLegend" in cfg) state.showLegend=!!cfg.showLegend;
+  if(cfg.legendLoc) state.legendLoc=cfg.legendLoc;
   state.scale=null;                       // refit with the restored framing
   syncControlsFromState();
   if(data && cfg.res && cfg.res!==loadedRes) ensureData();   // reload basemap if resolution changed at runtime
@@ -1039,9 +1118,9 @@ function syncControlsFromState(){
   $("grat-step").value=state.graticuleStep;
   $("c-ocean").value=state.color.ocean; $("c-land").value=state.color.land;
   $("c-coast").value=state.color.coast; $("c-border").value=state.color.border; $("c-grat").value=state.color.grat;
-  $("plot-aspect").value=String(state.plotAspect);
   $("plot-size").value=state.plotSize; $("plot-size-val").textContent=Math.round(state.plotSize*100)+"%";
   $("legend-toggle").checked=state.showLegend;
+  syncLegendLocControl();
   $("dark-toggle").checked=state.theme==="dark";
   syncFieldsToView();
 }
@@ -1158,6 +1237,7 @@ function startPan(p){
   if(PROJ[state.type].azimuthal){
     const inv = proj.invert(p);
     gesture = { kind:"rotate",
+      proj0: proj,                          // start projection (rotation = r0); reused for inversion
       q0: versor.fromAngles(state.rotate),
       v0: inv ? versor.cartesian(inv) : null,
       r0: state.rotate.slice() };
@@ -1198,8 +1278,11 @@ function movePan(p){
     return;
   }
   if(gesture.kind==="rotate"){
-    const proj = currentProjection();
-    const inv = proj.invert(p);
+    // Invert the cursor in the gesture's START frame (proj0, rotation = r0) — the
+    // same frame v0 was captured in — so versor.delta is the true incremental
+    // rotation and the grabbed point tracks the cursor. (Inverting in the live,
+    // already-rotated frame is what made this feel like it was fighting back.)
+    const inv = gesture.proj0.invert(p);
     if(gesture.v0 && inv){
       const q1 = versor.multiply(gesture.q0, versor.delta(gesture.v0, versor.cartesian(inv)));
       state.rotate = versor.toAngles(q1);
@@ -1244,8 +1327,9 @@ mapNode.addEventListener("pointerdown", ev=>{
 });
 mapNode.addEventListener("pointermove", ev=>{
   const p = ptr(ev);
-  // live coordinate readout
-  const inv = currentProjection().invert(p);
+  // live coordinate readout — reuse the last render's projection (cheap; avoids
+  // building a fresh projection on every raw pointermove during a drag)
+  const inv = (lastProj || currentProjection()).invert(p);
   document.getElementById("st-lon").textContent = inv ? inv[0].toFixed(2)+"°" : "—";
   document.getElementById("st-lat").textContent = inv ? inv[1].toFixed(2)+"°" : "—";
   if(dragging && gesture){
@@ -1346,12 +1430,14 @@ function resetView(){
   state.showBorders=true; state.showGraticule=true; state.graticuleStep=30;
   state.color={...THEME[state.theme].palette};   // reset to current theme's basemap palette
   state.bounds=null; state.rotate=[0,0,0]; state.scale=null;
-  state.plotAspect=2; state.plotSize=0.85;
+  state.plotSize=0.95;
+  state.legendLoc="right-outside";
   $("borders").checked=true; $("graticule").checked=true; $("grat-step").value=30;
+  syncLegendLocControl();
   $("c-ocean").value=state.color.ocean; $("c-land").value=state.color.land;
   $("c-coast").value=state.color.coast; $("c-border").value=state.color.border;
   $("c-grat").value=state.color.grat;
-  $("plot-aspect").value="2"; $("plot-size").value=0.85; $("plot-size-val").textContent="85%";
+  $("plot-size").value=0.95; $("plot-size-val").textContent="95%";
   setBoundsFields(DEFAULT_BOUNDS);
   render();
 }
@@ -1380,9 +1466,6 @@ $("grat-step").addEventListener("input", e=>{
   const v=parseFloat(e.target.value);
   state.graticuleStep = (isFinite(v)&&v>0) ? Math.min(90,v) : 30;
   if(state.showGraticule) render();
-});
-$("plot-aspect").addEventListener("change", e=>{
-  state.plotAspect = parseFloat(e.target.value)||0; state.scale=null; render();
 });
 $("plot-size").addEventListener("input", e=>{
   state.plotSize = parseFloat(e.target.value)||1;
@@ -1431,6 +1514,73 @@ $("load-file").addEventListener("click", ()=>$("file-input").click());
 $("file-input").addEventListener("change", e=>{ readFile(e.target.files[0]); e.target.value=""; });
 $("legend-toggle").addEventListener("change", e=>{ state.showLegend=e.target.checked; state.scale=null; render(); });
 $("dark-toggle").addEventListener("change", e=>{ setDarkMode(e.target.checked); });
+
+// ---- legend placement (dropdown + drag) ----------------------------------
+// state.legendLoc is a named string OR an [nx,ny] array (custom). The dropdown
+// shows "custom" whenever it holds an array.
+function syncLegendLocControl(){
+  const s=$("legend-loc"); if(s) s.value = Array.isArray(state.legendLoc) ? "custom" : state.legendLoc;
+}
+function setLegendLoc(loc){
+  const prevSide = legendSide();
+  if(loc==="custom"){
+    if(!Array.isArray(state.legendLoc)) state.legendLoc=[0.04,0.04];  // first manual custom → top-left inset
+  } else state.legendLoc = loc;
+  if(legendSide()!==prevSide) state.scale=null;              // strip changed → refit map
+  syncLegendLocControl();
+  render();
+}
+$("legend-loc").addEventListener("change", e=> setLegendLoc(e.target.value));
+
+(function(){
+  const box = document.getElementById("legend-box");
+  const wrap = document.getElementById("wrap");
+  let drag = null;
+  const wrapPt = ev => { const r=wrap.getBoundingClientRect(); return [ev.clientX-r.left, ev.clientY-r.top]; };
+
+  // Convert an absolute (wrap-space) top-left to a clamped custom position.
+  function placeAt(absX, absY){
+    const m=legendMetrics(); if(!m) return;
+    if(legendSide()!==null){          // detaching an outside legend: release strip, refit, reflow once
+      state.legendLoc=[0.5,0.05]; state.scale=null; render();
+    }
+    const [mapL,mapR]=mapLeftRight(), [mapT,mapB]=mapTopBottom();
+    const mapW=mapR-mapL, mapH=mapB-mapT, w=m.boxW, h=Math.min(m.boxH, mapH);
+    // Free placement: keep the box on the canvas (so it can't be lost) but allow
+    // it past the plot edges. Position is still stored relative to the map box,
+    // so it may fall outside [0,1] — that's fine and survives resize/reprojection.
+    const x=Math.max(0, Math.min(W-w, absX));
+    const y=Math.max(0, Math.min(H-h, absY));
+    state.legendLoc=[(x-mapL)/mapW, (y-mapT)/mapH];
+    box.style.left=x+"px"; box.style.top=y+"px";
+    syncLegendLocControl();
+  }
+
+  box.addEventListener("pointerdown", ev=>{
+    if(ev.button!==0) return;
+    if(ev.offsetX >= box.clientWidth) return;     // on the scrollbar → let it scroll
+    ev.preventDefault();
+    const p=wrapPt(ev);
+    drag={ dx:p[0]-box.offsetLeft, dy:p[1]-box.offsetTop };
+    box.classList.add("dragging");
+    try{ box.setPointerCapture(ev.pointerId); }catch(e){}
+  });
+  box.addEventListener("pointermove", ev=>{
+    if(!drag) return;
+    const p=wrapPt(ev);
+    placeAt(p[0]-drag.dx, p[1]-drag.dy);
+  });
+  function end(ev){
+    if(!drag) return;
+    drag=null; box.classList.remove("dragging");
+    try{ box.releasePointerCapture(ev.pointerId); }catch(e){}
+    render();                                     // sync export bounds to the final spot
+  }
+  box.addEventListener("pointerup", end);
+  box.addEventListener("pointercancel", end);
+  box.addEventListener("dblclick", ()=> setLegendLoc("right-outside"));   // reset
+})();
+
 $("markers-toggle").addEventListener("change", e=>{
   const on=e.target.checked; state.layers.forEach(L=>L.style.markers=on); render();
 });
@@ -1500,6 +1650,7 @@ $("dl-png").addEventListener("click", ()=>{
   };
   img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svgStr);
 });
+$("png-scale").addEventListener("change", updatePngDims);
 $("save-html").addEventListener("click", saveHtml);
 
 /* ============================================================================
