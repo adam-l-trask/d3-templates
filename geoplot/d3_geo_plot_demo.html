@@ -252,11 +252,11 @@
       <label class="toggle"><span>Dark mode</span>
         <input type="checkbox" id="dark-toggle"><i class="switch"></i></label>
       <div class="swatch-grid">
-        <div class="swatch"><label for="c-ocean">Ocean</label><input type="color" id="c-ocean" value="#e8eef2"></div>
-        <div class="swatch"><label for="c-land">Land</label><input type="color" id="c-land" value="#f1ece2"></div>
-        <div class="swatch"><label for="c-coast">Coastline</label><input type="color" id="c-coast" value="#6f6a60"></div>
-        <div class="swatch"><label for="c-border">Borders</label><input type="color" id="c-border" value="#b7afa1"></div>
-        <div class="swatch"><label for="c-grat">Graticule</label><input type="color" id="c-grat" value="#9a958a"></div>
+        <div class="swatch"><label for="c-ocean">Ocean</label><input type="color" id="c-ocean"></div>
+        <div class="swatch"><label for="c-land">Land</label><input type="color" id="c-land"></div>
+        <div class="swatch"><label for="c-coast">Coastline</label><input type="color" id="c-coast"></div>
+        <div class="swatch"><label for="c-border">Borders</label><input type="color" id="c-border"></div>
+        <div class="swatch"><label for="c-grat">Graticule</label><input type="color" id="c-grat"></div>
       </div>
     </div>
 
@@ -398,7 +398,7 @@ const state = {
   showBorders:true, showGraticule:true, graticuleStep:30,
   plotSize:0.95,   // fraction of the canvas the plot fills (fit-window, geographic ratio preserved)
   mode:"pan",
-  color:{ ocean:"#e8eef2", land:"#f1ece2", coast:"#6f6a60", border:"#b7afa1", grat:"#9a958a" },
+  color:null,         // set from the active theme's palette just below (single source)
   layers:[],          // trajectory layers: {id,name,type,coordinates,data,style}
   showLegend:false,
   legendLoc:"right-outside",   // placement: a named string OR [nx,ny] normalized
@@ -407,9 +407,12 @@ const state = {
   theme:"light",      // "light" | "dark" — UI + basemap palette (not trajectories)
 };
 
-// Basemap palettes per theme (ocean/land/coast/border/graticule). Trajectory
-// colours are never touched. THEME also holds the non-swatch chrome colours that
-// the map frame and exported figure/legend need in each mode.
+// Basemap palettes per theme (ocean/land/coast/border/graticule) — the SINGLE
+// SOURCE OF TRUTH for the default colours the figure opens with. Edit LIGHT_STYLE
+// / DARK_STYLE here to change those defaults; everything else (state.color, the
+// rail swatches, the live map, and exports) is driven from these. Trajectory
+// colours are never touched. THEME also holds the non-swatch chrome colours
+// (frame, figure background, legend) each mode needs.
 const LIGHT_STYLE = { ocean:"#e8eef2", land:"#f1ece2", coast:"#6f6a60", border:"#b7afa1", grat:"#9a958a" };
 const DARK_STYLE  = { ocean:"#0e1a24", land:"#23303c", coast:"#7d8c97", border:"#46545f", grat:"#2f3c46" };
 const THEME = {
@@ -418,6 +421,8 @@ const THEME = {
   dark: { palette:DARK_STYLE,  frame:"#8b97a1", figureBg:"#10161d",
           legendBg:"#19222b", legendBorder:"#33414c", legendInk:"#e8eaed", legendScroll:"#3f4d58" },
 };
+// Initialise the working colours from the default theme's palette.
+state.color = { ...THEME[state.theme].palette };
 
 // Distinct, print-friendly default colours assigned to layers without one.
 const LAYER_PALETTE = ["#c1572e","#2f6f9e","#3f8a5b","#9a5ea1","#b58b2e",
@@ -1141,9 +1146,7 @@ function applyTheme(theme){
 function setDarkMode(on){
   applyTheme(on ? "dark" : "light");
   state.color = { ...THEME[state.theme].palette };
-  $("c-ocean").value=state.color.ocean; $("c-land").value=state.color.land;
-  $("c-coast").value=state.color.coast; $("c-border").value=state.color.border;
-  $("c-grat").value=state.color.grat;
+  syncColorInputs();
   render();
 }
 function serializeLayers(){
@@ -1168,14 +1171,20 @@ function saveHtml(){
 }
 
 // Push the full state into the left-rail / top-bar controls (after a restore).
+// Push the five basemap colours from state.color onto the rail swatches.
+function syncColorInputs(){
+  $("c-ocean").value=state.color.ocean; $("c-land").value=state.color.land;
+  $("c-coast").value=state.color.coast; $("c-border").value=state.color.border;
+  $("c-grat").value=state.color.grat;
+}
+
 function syncControlsFromState(){
   $("proj").value=state.type;
   $("res").value=state.res;
   $("borders").checked=state.showBorders;
   $("graticule").checked=state.showGraticule;
   $("grat-step").value=state.graticuleStep;
-  $("c-ocean").value=state.color.ocean; $("c-land").value=state.color.land;
-  $("c-coast").value=state.color.coast; $("c-border").value=state.color.border; $("c-grat").value=state.color.grat;
+  syncColorInputs();
   $("plot-size").value=state.plotSize; $("plot-size-val").textContent=Math.round(state.plotSize*100)+"%";
   $("legend-toggle").checked=state.showLegend;
   syncLegendLocControl();
@@ -1450,7 +1459,6 @@ mapNode.addEventListener("dblclick", ev=>{
    Reset view) to get a framed region again.
    ========================================================================== */
 const DEFAULT_BOUNDS = { lon0:-180, lon1:180, latMin:-90, latMax:90 };
-const DEFAULT_STYLE  = { ocean:"#e8eef2", land:"#f1ece2", coast:"#6f6a60", border:"#b7afa1", grat:"#9a958a" };
 
 // Accepts either {lon0,lon1,...} (defaults) or {from,to,...} (box/pan).
 function setBoundsFields(d){
@@ -1501,9 +1509,7 @@ function resetView(){
   state.legendLoc="right-outside";
   $("borders").checked=true; $("graticule").checked=true; $("grat-step").value=30;
   syncLegendLocControl();
-  $("c-ocean").value=state.color.ocean; $("c-land").value=state.color.land;
-  $("c-coast").value=state.color.coast; $("c-border").value=state.color.border;
-  $("c-grat").value=state.color.grat;
+  syncColorInputs();
   $("plot-size").value=0.95; $("plot-size-val").textContent="95%";
   setBoundsFields(DEFAULT_BOUNDS);
   render();
@@ -1740,6 +1746,7 @@ new ResizeObserver(()=>resize()).observe(document.getElementById("wrap"));
   const r=document.getElementById("wrap").getBoundingClientRect();
   W=Math.round(r.width)||800; H=Math.round(r.height)||600;
   svg.attr("viewBox",`0 0 ${W} ${H}`).attr("width",W).attr("height",H);
+  syncColorInputs();                 // rail swatches reflect the theme palette
   render();        // draws frame/ocean immediately
   setBoundsFields(DEFAULT_BOUNDS);   // show the default bounds in the boxes
   // load any trajectory data embedded by a generator (e.g. a Python script)
