@@ -1,0 +1,1302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plot2D — d3 2-D series plotter</title>
+<meta name="description" content="Plot2D — a lightweight, self-contained d3 template for plotting 2-D series (any x vs any y). Part of the d3_templates collection." />
+<!-- plot2d:libs (offline embedding replaces this block with inline <script> bundles) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<!-- /plot2d:libs -->
+<style>
+  :root{
+    --paper:#fbfbf9; --panel:#ffffff; --hair:#e7e4dc; --hair-strong:#d8d4ca;
+    --ink:#20201d; --muted:#6c685f; --faint:#9a958a;
+    --accent:#c1572e;            /* survey orange — used only for active states + selection */
+    --accent-weak:#c1572e22;
+    --legend-bg:#ffffffea; --grid-line:#00000003;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  /* Dark mode re-paints the whole UI by overriding the same variables. Plot
+     colours (grid/axis) are NOT here — they live in state and are swapped in
+     JS so they round-trip through save/restore; series colours never change. */
+  html[data-theme="dark"]{
+    --paper:#0f151b; --panel:#161e26; --hair:#28323b; --hair-strong:#39454f;
+    --ink:#e8eaed; --muted:#9aa6b0; --faint:#6b7782;
+    --accent:#d2693f; --accent-weak:#d2693f2e;
+    --legend-bg:#19222bee; --grid-line:#ffffff06;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:clip}
+  body{
+    background:var(--paper); color:var(--ink); font-family:var(--sans);
+    font-size:13px; line-height:1.45; display:flex; height:100vh; overflow:clip;
+  }
+  svg{overflow:hidden}
+
+  /* ---------- control rail ---------- */
+  .rail{
+    width:268px; flex:0 0 268px; height:100vh; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+    background:var(--panel); border-right:1px solid var(--hair);
+    padding:18px 18px 28px;
+    scrollbar-width:thin; scrollbar-color:var(--hair-strong) transparent;
+  }
+  .rail::-webkit-scrollbar{width:10px}
+  .rail::-webkit-scrollbar-track{background:transparent}
+  .rail::-webkit-scrollbar-thumb{background:var(--hair-strong);border-radius:5px;
+    border:2px solid var(--panel);background-clip:padding-box}
+  .brand{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+  .brand h1{font-size:15px;font-weight:650;letter-spacing:-0.01em;margin:0}
+  .brand .v{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .tagline{color:var(--muted);font-size:11.5px;margin:0 0 18px}
+
+  .group{margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--hair)}
+  .group:last-child{border-bottom:none}
+  .eyebrow{
+    font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;
+    color:var(--faint);margin:0 0 9px;
+  }
+  label.field{display:block;margin-bottom:10px}
+  label.field > span{display:block;font-size:11.5px;color:var(--muted);margin-bottom:4px}
+
+  select, input[type=number]{
+    width:100%;font-family:var(--sans);font-size:12.5px;color:var(--ink);
+    background:var(--paper);border:1px solid var(--hair-strong);border-radius:6px;
+    padding:6px 8px;appearance:none;
+  }
+  input[type=number]{font-family:var(--mono);font-size:12px}
+  select:focus,input:focus{outline:2px solid var(--accent-weak);border-color:var(--accent)}
+
+  /* segmented control */
+  .seg{display:flex;border:1px solid var(--hair-strong);border-radius:6px;overflow:hidden}
+  .seg button{
+    flex:1;border:none;background:var(--paper);color:var(--muted);
+    font-family:var(--mono);font-size:11px;letter-spacing:0.04em;text-transform:uppercase;
+    padding:7px 4px;cursor:pointer;border-right:1px solid var(--hair-strong);
+  }
+  .seg button:last-child{border-right:none}
+  .seg button[aria-pressed=true]{background:var(--accent);color:#fff}
+
+  /* toggle row */
+  .toggle{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;cursor:pointer;position:relative}
+  .toggle span{font-size:12.5px}
+  .switch{position:relative;width:34px;height:19px;flex:0 0 34px;
+    background:var(--hair-strong);border-radius:999px;transition:background .15s}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;
+    background:#fff;border-radius:50%;transition:transform .15s;box-shadow:0 1px 2px #0003}
+  .toggle input{position:absolute;opacity:0;margin:0;top:0;right:0;width:34px;height:100%}
+  .toggle input:checked + .switch{background:var(--accent)}
+  .toggle input:checked + .switch::after{transform:translateX(15px)}
+  .toggle input:focus-visible + .switch{outline:2px solid var(--accent-weak);outline-offset:2px}
+
+  /* color rows */
+  .swatch{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .swatch label{font-size:12px;color:var(--muted)}
+  .swatch input[type=color]{
+    -webkit-appearance:none;appearance:none;width:30px;height:22px;padding:0;border:none;
+    background:none;cursor:pointer;border-radius:5px;overflow:hidden;
+  }
+  .swatch input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  .swatch input[type=color]::-webkit-color-swatch{border:1px solid var(--hair-strong);border-radius:5px}
+  .swatch-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+  .swatch-grid .swatch{margin-bottom:0;display:grid;grid-template-columns:60px auto;align-items:center;gap:8px;justify-content:start}
+  .swatch-grid .swatch label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .swatch-grid .swatch input[type=color]{flex:none}
+
+  .bounds-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .hint-text{font-size:11px;color:var(--muted);margin:0 0 10px;line-height:1.4}
+  .hint-text b{color:var(--ink);font-weight:600}
+  /* series layer list */
+  .muted-note{font-size:11.5px;color:var(--faint);margin:2px 0}
+  .layer-row{display:flex;flex-direction:column;gap:5px;padding:7px 0;border-bottom:1px solid var(--hair)}
+  .layer-row:last-of-type{border-bottom:none}
+  .lr-top{display:flex;align-items:center;gap:7px}
+  .lr-bot{display:flex;align-items:center;gap:7px;padding-left:26px}
+  .lr-spacer{flex:1 1 auto}
+  .layer-row input[type=color]{-webkit-appearance:none;appearance:none;width:22px;height:18px;padding:0;
+    border:none;background:none;cursor:pointer;border-radius:4px;flex:0 0 auto}
+  .layer-row input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+  .layer-row input[type=color]::-webkit-color-swatch{border:1px solid var(--hair-strong);border-radius:4px}
+  .layer-row .ln{flex:1 1 auto;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .layer-row .lw{flex:0 0 50px;width:50px;font-family:var(--mono);font-size:11px;padding:3px 5px}
+  .layer-row .lds{flex:0 0 56px;width:56px;font-size:12px;padding:3px 2px;text-align:center}
+  .layer-del{flex:0 0 auto;width:20px;height:20px;line-height:1;border:none;background:none;cursor:pointer;
+    color:var(--faint);font-size:16px;border-radius:4px;padding:0}
+  .layer-del:hover{color:var(--accent);background:#c1572e14}
+  /* hover tooltip */
+  .traj-tip{position:absolute;z-index:6;pointer-events:none;display:none;background:var(--panel);
+    border:1px solid var(--hair-strong);border-radius:7px;padding:7px 9px;box-shadow:0 4px 16px #00000018;
+    font-size:11px;max-width:230px}
+  .traj-tip .tt-name{font-weight:650;font-size:11.5px;margin-bottom:3px;color:var(--ink)}
+  .traj-tip .tt-row{display:flex;gap:14px;justify-content:space-between;font-family:var(--mono);color:var(--ink)}
+  .traj-tip .tt-row span{color:var(--faint)}
+  .legend-box{position:absolute;z-index:5;display:none;box-sizing:border-box;
+    background:var(--legend-bg);border:1px solid var(--hair);border-radius:6px;
+    padding:6px 0;overflow-y:auto;overflow-x:hidden;backdrop-filter:blur(1px);
+    font:11px ui-sans-serif,system-ui;color:var(--ink);
+    scrollbar-width:thin;scrollbar-gutter:stable;scrollbar-color:var(--hair-strong) transparent;
+    cursor:move;user-select:none;-webkit-user-select:none}
+  .legend-box.dragging{box-shadow:0 4px 14px #0003;border-color:var(--accent)}
+  .legend-box .lg-row{display:flex;align-items:center;gap:6px;padding:2px 8px;min-width:0}
+  .legend-box .lg-swatch{flex:none;width:22px;overflow:visible}
+  .legend-box .lg-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .legend-box::-webkit-scrollbar{width:8px}
+  .legend-box::-webkit-scrollbar-thumb{background:var(--hair-strong);border-radius:4px}
+  .canvas-wrap.dropping::after{content:"Drop series data";position:absolute;inset:10px;
+    border:2px dashed var(--accent);border-radius:10px;display:flex;align-items:center;justify-content:center;
+    color:var(--accent);font-size:14px;font-weight:600;background:#c1572e0c;z-index:7;pointer-events:none}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:3px;
+    background:var(--hair-strong);outline:none;margin:7px 0}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:15px;height:15px;
+    border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px #0003}
+  input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--accent);
+    cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px #0003}
+  .row{display:flex;gap:8px}
+  button.btn{
+    flex:1;font-family:var(--sans);font-size:12px;font-weight:550;cursor:pointer;
+    padding:8px 10px;border-radius:6px;border:1px solid var(--hair-strong);
+    background:var(--paper);color:var(--ink);
+  }
+  button.btn:hover{border-color:var(--faint)}
+  button.btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  button.btn.primary:hover{opacity:.9}
+  button.btn:focus-visible{outline:2px solid var(--accent-weak);outline-offset:1px}
+
+  /* ---------- stage ---------- */
+  .stage{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+
+  /* top bar: figure layout + export, right-aligned */
+  .topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:8px 16px;border-bottom:1px solid var(--hair);background:var(--panel)}
+  .topbar .tb-label{font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--faint)}
+  .topbar .tb-spacer{flex:1 1 auto;min-width:8px}
+  .topbar .tb-group{display:flex;align-items:center;gap:10px}
+  .topbar .tb-sep{width:1px;height:22px;background:var(--hair);flex:0 0 auto}
+  .topbar label.inline{display:flex;align-items:center;gap:6px;font-size:11.5px;
+    color:var(--muted);white-space:nowrap}
+  .topbar select{width:auto;padding:5px 7px;font-size:12px}
+  .topbar input[type=range]{width:92px;margin:0}
+  .topbar button.btn{flex:0 0 auto;padding:6px 12px}
+  .topbar #plot-size-val{font-family:var(--mono);font-size:11px;color:var(--ink);min-width:34px}
+  .topbar .png-dims{font-family:var(--mono);font-size:10px;color:var(--faint);white-space:nowrap;min-width:62px}
+  .topbar .seg{flex:0 0 auto}
+  .topbar .seg button{padding:6px 11px}
+  .canvas-wrap{flex:1;position:relative;min-height:0;overflow:hidden;background:
+    linear-gradient(var(--grid-line) 1px,transparent 1px) 0 0/22px 22px,
+    linear-gradient(90deg,var(--grid-line) 1px,transparent 1px) 0 0/22px 22px,
+    var(--paper);}
+  #map{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+  #map.boxing{cursor:crosshair}
+  #map.panning{cursor:grabbing}
+
+  .rubber{fill:var(--accent-weak);stroke:var(--accent);stroke-width:1;stroke-dasharray:4 3}
+
+  /* status bar — the instrument readout */
+  .status{
+    flex:0 0 auto;display:flex;align-items:center;gap:22px;
+    padding:7px 16px;border-top:1px solid var(--hair);background:var(--panel);
+    font-family:var(--mono);font-size:11px;color:var(--muted);
+  }
+  .status .k{color:var(--faint)}
+  .status b{color:var(--ink);font-weight:550}
+  .status .hint{margin-left:auto;color:var(--faint);font-family:var(--sans);font-size:11px}
+
+  /* overlay (empty-state hint) */
+  .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    background:transparent;pointer-events:none;z-index:5}
+  .overlay .card{background:var(--panel);border:1px solid var(--hair);border-radius:10px;
+    padding:16px 20px;max-width:420px;box-shadow:0 8px 30px #0000000f;pointer-events:auto}
+  .overlay h3{margin:0 0 6px;font-size:14px}
+  .overlay p{margin:0;color:var(--muted);font-size:12px}
+  .overlay code{font-family:var(--mono);font-size:11px;background:var(--paper);
+    padding:1px 4px;border-radius:4px;border:1px solid var(--hair)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+  <aside class="rail">
+    <div class="brand"><h1>Plot2D</h1><span class="v">d3 based 2-D plots</span></div>
+    <p class="tagline">A lightweight series plotter. Drag to pan, box to zoom, export for print.</p>
+
+    <div class="group">
+      <p class="eyebrow">Axes</p>
+      <label class="field"><span>X axis data</span><select id="x-key"></select></label>
+      <div class="bounds-grid" style="margin-bottom:10px">
+        <label class="field" style="margin:0"><span>X scale ×</span><input type="number" id="x-mult" step="any" value="1"></label>
+        <label class="field" style="margin:0"><span>X preset</span><select id="x-preset"></select></label>
+      </div>
+      <label class="field"><span>Y axis data</span><select id="y-key"></select></label>
+      <div class="bounds-grid">
+        <label class="field" style="margin:0"><span>Y scale ×</span><input type="number" id="y-mult" step="any" value="1"></label>
+        <label class="field" style="margin:0"><span>Y preset</span><select id="y-preset"></select></label>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Grid</p>
+      <label class="toggle"><span>Gridlines</span>
+        <input type="checkbox" id="grid-toggle" checked><i class="switch"></i></label>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Style</p>
+      <label class="toggle"><span>Dark mode</span>
+        <input type="checkbox" id="dark-toggle"><i class="switch"></i></label>
+      <div class="swatch-grid">
+        <div class="swatch"><label for="c-grid">Gridlines</label><input type="color" id="c-grid"></div>
+        <div class="swatch"><label for="c-axis">Axes</label><input type="color" id="c-axis"></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Axis limits</p>
+      <div class="bounds-grid">
+        <label class="field"><span>X min</span><input type="number" id="x-min" step="any" placeholder="auto"></label>
+        <label class="field"><span>X max</span><input type="number" id="x-max" step="any" placeholder="auto"></label>
+        <label class="field"><span>Y min</span><input type="number" id="y-min" step="any" placeholder="auto"></label>
+        <label class="field"><span>Y max</span><input type="number" id="y-max" step="any" placeholder="auto"></label>
+      </div>
+      <p class="hint-text">Limits are in <b>display units</b> (after the scale ×). Leave blank for auto-fit. Changing axis data resets that axis to auto.</p>
+      <div class="row">
+        <button class="btn" id="apply-lims">Apply limits</button>
+        <button class="btn" id="clear-lims">Auto-fit</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Series</p>
+      <div class="row" style="margin-bottom:8px">
+        <button class="btn" id="load-file">Load file…</button>
+      </div>
+      <p class="hint-text">Drop a <b>.json</b> onto the plot, or embed from Python. Each layer carries named <b>series</b> arrays.</p>
+      <label class="toggle"><span>Legend</span>
+        <input type="checkbox" id="legend-toggle"><i class="switch"></i></label>
+      <label class="field" id="legend-loc-field" style="margin:2px 0 8px"><span>Legend position</span>
+        <select id="legend-loc">
+          <option value="right-outside">right-outside</option>
+          <option value="left-outside">left-outside</option>
+          <option value="top-left">top-left</option>
+          <option value="top-right">top-right</option>
+          <option value="bottom-left">bottom-left</option>
+          <option value="bottom-right">bottom-right</option>
+          <option value="custom">custom (drag)</option>
+        </select></label>
+      <label class="toggle" style="margin-bottom:8px"><span>Point markers</span>
+        <input type="checkbox" id="markers-toggle"><i class="switch"></i></label>
+      <div id="layer-list"></div>
+      <input type="file" id="file-input" accept=".json,application/json" style="display:none">
+    </div>
+  </aside>
+
+  <main class="stage">
+    <div class="topbar">
+      <div class="tb-group">
+        <div class="seg" role="group" aria-label="Pointer mode">
+          <button id="mode-pan" aria-pressed="true">Pan</button>
+          <button id="mode-box" aria-pressed="false">Box zoom</button>
+        </div>
+      </div>
+      <span class="tb-spacer"></span>
+      <div class="tb-group">
+        <label class="inline">Size
+          <input type="range" id="plot-size" min="0.4" max="1" step="0.01" value="0.95">
+          <span id="plot-size-val">95%</span>
+        </label>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-group">
+        <button class="btn" id="reset">Reset view</button>
+        <button class="btn primary" id="dl-svg">SVG</button>
+        <button class="btn" id="dl-png">PNG</button>
+        <select id="png-scale">
+          <option value="2" selected>2×</option>
+          <option value="4">4×</option>
+          <option value="1">1×</option>
+        </select>
+        <span id="png-dims" class="png-dims" title="PNG output size at this scale"></span>
+        <div class="tb-sep"></div>
+        <button class="btn" id="save-html" title="Save a self-contained HTML with your current series and settings">Save HTML</button>
+      </div>
+    </div>
+    <div class="canvas-wrap" id="wrap">
+      <svg id="map"></svg>
+      <div class="traj-tip" id="traj-tip"></div>
+      <div class="legend-box" id="legend-box"></div>
+      <div class="overlay" id="overlay" style="display:none">
+        <div class="card"><h3>No series loaded</h3>
+          <p>Drop a <code>.json</code> file with series data, or generate one with the Python helper.</p></div>
+      </div>
+    </div>
+    <div class="status">
+      <span><span class="k">x</span> <b id="st-x">—</b></span>
+      <span><span class="k">y</span> <b id="st-y">—</b></span>
+      <span><span class="k">series</span> <b id="st-n">0</b></span>
+      <span class="hint">drag to pan · box mode or shift-drag to zoom · double-click to zoom in</span>
+    </div>
+  </main>
+
+  <!-- Series data goes here (Python writes JSON into this tag). Schema:
+       { "layers": [ { "name":"...", "series":{"time":[...],"altitude":[...]},
+                       "style":{"color":"#...","width":1.5} } ] }            -->
+  <script type="application/json" id="plot2d-data"></script>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+// Pristine page source, captured before any rendering mutates the DOM. Used by
+// "Save HTML" to write a fresh, self-contained file with the current figure
+// (config + series) injected into the data block.
+const PRISTINE_HTML = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+
+const PAD = 14;                                   // outer padding of the plot area
+const AXM = { left:56, right:16, top:14, bottom:42 };   // axis margins (ticks + labels)
+const FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+
+// Unit-conversion presets for the axis multipliers. Selecting one fills the
+// numeric × field and sets the axis unit label; a custom number clears the unit.
+const MULT_PRESETS = [
+  { label:"m → ft",    k:3.280839895, unit:"ft" },
+  { label:"ft → m",    k:0.3048,      unit:"m" },
+  { label:"m → km",    k:0.001,       unit:"km" },
+  { label:"km → m",    k:1000,        unit:"m" },
+  { label:"kg → lb",   k:2.204622622, unit:"lb" },
+  { label:"lb → kg",   k:0.45359237,  unit:"kg" },
+  { label:"m/s → kt",  k:1.943844492, unit:"kt" },
+  { label:"m/s → km/h",k:3.6,         unit:"km/h" },
+  { label:"rad → deg", k:57.29577951, unit:"deg" },
+  { label:"deg → rad", k:0.017453293, unit:"rad" },
+  { label:"s → min",   k:0.016666667, unit:"min" },
+  { label:"s → hr",    k:0.000277778, unit:"hr" },
+];
+
+/* ============================================================================
+   STATE  — everything needed to reproduce a view.
+   ========================================================================== */
+const state = {
+  xKey:null, yKey:null,     // selected series names for the axes (default: first / second)
+  xMult:1, yMult:1,         // display multipliers (display value = raw × mult)
+  xUnit:"", yUnit:"",       // optional unit label appended to the axis title
+  xlim:null, ylim:null,     // [min,max] in DISPLAY units, or null = auto-fit to data
+  showGrid:true,
+  plotSize:0.95,            // fraction of the canvas the plot fills
+  mode:"pan",
+  color:null,               // set from the active theme's palette just below (single source)
+  layers:[],                // series layers: {id,name,series:{key:[...]},style}
+  showLegend:false,
+  legendLoc:"right-outside",   // named string OR [nx,ny] normalized custom position
+  theme:"light",
+};
+
+// Plot chrome palettes per theme (gridlines + axes) — the SINGLE SOURCE OF TRUTH
+// for the default colours the figure opens with. Edit LIGHT_STYLE / DARK_STYLE
+// to change those defaults; everything (state.color, swatches, plot, exports)
+// flows from here. Series colours are never touched. THEME also holds non-swatch
+// chrome (frame, figure background, legend) each mode needs.
+const LIGHT_STYLE = { grid:"#e4e0d6", axis:"#6f6a60" };
+const DARK_STYLE  = { grid:"#28323b", axis:"#7d8c97" };
+const THEME = {
+  light:{ palette:LIGHT_STYLE, frame:"#3a3733", figureBg:"#ffffff",
+          legendBg:"#ffffff", legendBorder:"#e7e4dc", legendInk:"#20201d", legendScroll:"#cfcabf" },
+  dark: { palette:DARK_STYLE,  frame:"#8b97a1", figureBg:"#10161d",
+          legendBg:"#19222b", legendBorder:"#33414c", legendInk:"#e8eaed", legendScroll:"#3f4d58" },
+};
+state.color = { ...THEME[state.theme].palette };
+
+// Distinct, print-friendly default colours assigned to layers without one.
+const LAYER_PALETTE = ["#c1572e","#2f6f9e","#3f8a5b","#9a5ea1","#b58b2e",
+                       "#3a3a3a","#1f9e8f","#b23b5e","#6a7f2e","#7a5cc0"];
+
+let W=800, H=600;                 // viewport size in px
+let frameBox = null;              // inner plot box [[x0,y0],[x1,y1]] (for legend alignment)
+let lastScales = null;            // {xScale,yScale,ix0,ix1,iy0,iy1} from the last render
+
+/* ============================================================================
+   DATA MODEL HELPERS
+   ========================================================================== */
+// Union of every series name across all layers, in first-seen order.
+function allSeriesKeys(){
+  const seen=[], set=new Set();
+  for(const L of state.layers) for(const k in L.series) if(!set.has(k)){ set.add(k); seen.push(k); }
+  return seen;
+}
+// Layers that can actually be drawn with the current x/y selection.
+function drawableLayers(){
+  return state.layers.filter(L=> L.style.visible && L.series[state.xKey] && L.series[state.yKey]);
+}
+// Pick sensible defaults (first series → x, second → y) when unset/invalid.
+function ensureAxisKeys(){
+  const keys=allSeriesKeys();
+  if(!keys.length) return;
+  if(!state.xKey || !keys.includes(state.xKey)) state.xKey=keys[0];
+  if(!state.yKey || !keys.includes(state.yKey)) state.yKey = keys[1] || keys[0];
+}
+// Auto data extent (in DISPLAY units) for an axis, with a little padding.
+function axisExtent(key, mult){
+  let lo=Infinity, hi=-Infinity;
+  for(const L of drawableLayers()){
+    const arr=L.series[key]; if(!arr) continue;
+    for(let i=0;i<arr.length;i++){ const d=arr[i]*mult;
+      if(Number.isFinite(d)){ if(d<lo)lo=d; if(d>hi)hi=d; } }
+  }
+  if(!(lo<hi)) return Number.isFinite(lo) ? [lo-1, lo+1] : [0,1];
+  const pad=(hi-lo)*0.05;
+  return [lo-pad, hi+pad];
+}
+function axisTitle(key, unit){ return key ? (unit ? `${key} (${unit})` : key) : ""; }
+
+/* ============================================================================
+   LEGEND GEOMETRY  (shared by screen overlay, export, figure-bounds, dragging)
+   ========================================================================== */
+function legendItems(){ return state.layers.filter(L=>L.style.visible && L.name); }
+let _lgMeasureCtx = null;
+function legendTextWidth(s){
+  if(!_lgMeasureCtx){
+    _lgMeasureCtx = document.createElement("canvas").getContext("2d");
+    _lgMeasureCtx.font = '11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  }
+  return _lgMeasureCtx.measureText(s).width;
+}
+function legendMetrics(){
+  const items = legendItems();
+  if(!state.showLegend || !items.length) return null;
+  const pad=8, sw=22, textGap=6, lh=16, gap=18;
+  const chrome = pad + sw + textGap + pad;
+  const scrollGutter = 12, slack = 8;
+  const textW = items.reduce((m,L)=>Math.max(m, legendTextWidth(L.name)), 0);
+  const maxBoxW = Math.max(160, Math.floor((W||1000)*0.45));
+  const fit = Math.ceil(chrome + textW + slack);
+  const boxW = Math.min(maxBoxW, fit + scrollGutter);
+  const exportW = Math.min(maxBoxW, fit);
+  const boxH = items.length*lh + pad*2 - 4;
+  return { items, pad, sw, textGap, lh, gap, boxW, exportW, boxH };
+}
+function legendWidth(){ const m=legendMetrics(); return m ? m.gap + m.boxW : 0; }
+const LEGEND_INSET = 12;
+const LEGEND_ANCHOR = { "top-left":[0,0],"top-right":[1,0],"bottom-left":[0,1],"bottom-right":[1,1] };
+function legendIsOutside(loc){ loc=loc||state.legendLoc; return loc==="right-outside"||loc==="left-outside"; }
+function legendSide(){
+  if(!legendMetrics()) return null;
+  if(state.legendLoc==="right-outside") return "east";
+  if(state.legendLoc==="left-outside") return "west";
+  return null;
+}
+function legendBox(mode){
+  const m = legendMetrics(); if(!m) return null;
+  const [mapL,mapR] = mapLeftRight(), [mapT,mapB] = mapTopBottom();
+  const mapW = mapR-mapL, mapH = mapB-mapT, loc = state.legendLoc;
+  const w = (mode==="full" || mode==="view") ? m.exportW : m.boxW;
+  const outside = legendIsOutside(loc);
+  const custom = Array.isArray(loc);
+  const avail = (outside || custom) ? mapH : Math.max(40, mapH - 2*LEGEND_INSET);
+  const h = (mode==="full" && outside) ? m.boxH : Math.min(m.boxH, avail);
+  let x, y;
+  if(loc==="right-outside"){ x = mapR + m.gap; y = mapT; }
+  else if(loc==="left-outside"){ x = mapL - m.gap - w; y = mapT; }
+  else if(custom){
+    x = mapL + loc[0]*mapW; y = mapT + loc[1]*mapH;
+    x = Math.max(0, Math.min(W - w, x)); y = Math.max(0, Math.min(H - h, y));
+  } else {
+    const f = LEGEND_ANCHOR[loc] || [1,0.5];
+    x = mapL + LEGEND_INSET + f[0]*(mapW - 2*LEGEND_INSET - w);
+    y = mapT + LEGEND_INSET + f[1]*(avail - h);
+  }
+  return { x, y, w, h, avail, mapL, mapR, mapT, mapB, mapW, mapH };
+}
+function plotRect(){
+  const s=state.plotSize;
+  const side=legendSide();
+  const lw = side ? Math.min(legendWidth(), Math.max(0, W*s - 140)) : 0;
+  const w=Math.max(140, W*s - lw), h=H*s;
+  const groupW = w + lw;
+  const gx = (W-groupW)/2;
+  const x = side==="west" ? gx + lw : gx;
+  return { x, y:(H-h)/2, w, h };
+}
+// Top/bottom and left/right of the actual drawn plot box (the axes frame), so
+// the legend aligns to the plot content rather than the padded rectangle.
+function mapTopBottom(){
+  const r = plotRect();
+  if(frameBox) return [frameBox[0][1], frameBox[1][1]];
+  return [r.y+AXM.top, r.y+r.h-AXM.bottom];
+}
+function mapLeftRight(){
+  const r = plotRect();
+  if(frameBox) return [frameBox[0][0], frameBox[1][0]];
+  return [r.x+AXM.left, r.x+r.w-AXM.right];
+}
+function figureRect(){
+  const r=plotRect(), m=legendMetrics();
+  if(!m) return { x:r.x, y:r.y, w:r.w, h:r.h };
+  const lb=legendBox("full");
+  const left=Math.min(r.x, lb.x-PAD), right=Math.max(r.x+r.w, lb.x+lb.w+PAD);
+  const top=Math.min(r.y, lb.y-PAD), bottom=Math.max(r.y+r.h, lb.y+lb.h+PAD);
+  return { x:left, y:top, w:right-left, h:bottom-top };
+}
+function figureRectView(){
+  const r=plotRect(), m=legendMetrics();
+  if(!m) return { x:r.x, y:r.y, w:r.w, h:r.h };
+  const lb=legendBox("view");
+  const left=Math.min(r.x, lb.x-PAD), right=Math.max(r.x+r.w, lb.x+lb.w+PAD);
+  const top=Math.min(r.y, lb.y-PAD), bottom=Math.max(r.y+r.h, lb.y+lb.h+PAD);
+  return { x:left, y:top, w:right-left, h:bottom-top };
+}
+
+/* ============================================================================
+   SVG SCAFFOLD  (built once; render() updates attrs)
+   ========================================================================== */
+const svg = d3.select("#map");
+const defs = svg.append("defs");
+const clip = defs.append("clipPath").attr("id","frame-clip").append("path");
+const gRoot = svg.append("g");
+const gGrid = gRoot.append("g").attr("class","grid");
+const gAxes = gRoot.append("g").attr("class","axes");
+const gClipped = gRoot.append("g").attr("clip-path","url(#frame-clip)");
+const gTraj = gClipped.append("g").attr("class","traj");
+const elFrame = gRoot.append("rect").attr("fill","none");
+const gLegend = gRoot.append("g").attr("class","legend");
+const elRubber = svg.append("rect").attr("class","rubber").style("display","none");
+
+let dragging=false;
+let rafPending=false;
+function requestRender(){
+  if(rafPending) return;
+  rafPending=true;
+  requestAnimationFrame(()=>{ rafPending=false; render(); });
+}
+
+/* ============================================================================
+   RENDER
+   ========================================================================== */
+function render(){
+  const r = plotRect();
+  const ix0=r.x+AXM.left, ix1=Math.max(r.x+AXM.left+10, r.x+r.w-AXM.right);
+  const iy0=r.y+AXM.top,  iy1=Math.max(r.y+AXM.top+10, r.y+r.h-AXM.bottom);
+  const xdom = state.xlim || axisExtent(state.xKey, state.xMult);
+  const ydom = state.ylim || axisExtent(state.yKey, state.yMult);
+  const xScale = d3.scaleLinear().domain(xdom).range([ix0, ix1]);
+  const yScale = d3.scaleLinear().domain(ydom).range([iy1, iy0]);   // y up
+  lastScales = { xScale, yScale, ix0, ix1, iy0, iy1 };
+  frameBox = [[ix0,iy0],[ix1,iy1]];
+
+  clip.attr("d", `M${ix0},${iy0}H${ix1}V${iy1}H${ix0}Z`);
+  drawAxes(xScale, yScale, ix0, ix1, iy0, iy1);
+  elFrame.attr("x",ix0).attr("y",iy0).attr("width",ix1-ix0).attr("height",iy1-iy0)
+         .attr("stroke",THEME[state.theme].frame).attr("stroke-width",1.1);
+
+  renderTrajectories(xScale, yScale);
+  renderLegend();
+  trajDirty = true;
+
+  $("st-n").textContent = drawableLayers().length;
+  $("overlay").style.display = state.layers.length ? "none" : "flex";
+  updatePngDims();
+}
+
+function drawAxes(xScale, yScale, ix0, ix1, iy0, iy1){
+  const th = THEME[state.theme], col = state.color;
+  const fmt = d3.format("~g");
+  const xticks = xScale.ticks(8), yticks = yScale.ticks(7);
+
+  gGrid.selectAll("*").remove();
+  if(state.showGrid){
+    xticks.forEach(t=>{ const x=xScale(t);
+      gGrid.append("line").attr("x1",x).attr("x2",x).attr("y1",iy0).attr("y2",iy1)
+           .attr("stroke",col.grid).attr("stroke-width",0.7); });
+    yticks.forEach(t=>{ const y=yScale(t);
+      gGrid.append("line").attr("x1",ix0).attr("x2",ix1).attr("y1",y).attr("y2",y)
+           .attr("stroke",col.grid).attr("stroke-width",0.7); });
+  }
+
+  gAxes.selectAll("*").remove();
+  // x ticks + labels (bottom)
+  xticks.forEach(t=>{ const x=xScale(t);
+    gAxes.append("line").attr("x1",x).attr("x2",x).attr("y1",iy1).attr("y2",iy1+5)
+         .attr("stroke",col.axis).attr("stroke-width",1);
+    gAxes.append("text").attr("x",x).attr("y",iy1+17).attr("text-anchor","middle")
+         .attr("font-family",FONT).attr("font-size",10.5).attr("fill",th.legendInk).text(fmt(t)); });
+  // y ticks + labels (left)
+  yticks.forEach(t=>{ const y=yScale(t);
+    gAxes.append("line").attr("x1",ix0-5).attr("x2",ix0).attr("y1",y).attr("y2",y)
+         .attr("stroke",col.axis).attr("stroke-width",1);
+    gAxes.append("text").attr("x",ix0-9).attr("y",y+3.5).attr("text-anchor","end")
+         .attr("font-family",FONT).attr("font-size",10.5).attr("fill",th.legendInk).text(fmt(t)); });
+  // axis titles
+  gAxes.append("text").attr("x",(ix0+ix1)/2).attr("y",iy1+35).attr("text-anchor","middle")
+       .attr("font-family",FONT).attr("font-size",11.5).attr("font-weight",600)
+       .attr("fill",th.legendInk).text(axisTitle(state.xKey, state.xUnit));
+  gAxes.append("text").attr("transform",`translate(${ix0-42},${(iy0+iy1)/2}) rotate(-90)`).attr("text-anchor","middle")
+       .attr("font-family",FONT).attr("font-size",11.5).attr("font-weight",600)
+       .attr("fill",th.legendInk).text(axisTitle(state.yKey, state.yUnit));
+}
+
+// Live "what pixels will the PNG be" hint = the snapshot figure box × scale.
+function updatePngDims(){
+  const el=$("png-dims"); if(!el) return;
+  const scale=+$("png-scale").value || 1;
+  const r=figureRectView();
+  el.textContent = Math.round(r.w*scale) + "×" + Math.round(r.h*scale);
+}
+
+/* ============================================================================
+   SERIES (line layers)
+   ========================================================================== */
+function dashFor(style, w){
+  w = Math.max(0.5, +w || 1);
+  switch(style){
+    case "dash":          return { dash:`${4*w},${3*w}`,              cap:"butt"  };
+    case "dot":           return { dash:`0,${3*w}`,                   cap:"round" };
+    case "long-dash":     return { dash:`${8*w},${4*w}`,              cap:"butt"  };
+    case "long-dash-dot": return { dash:`${8*w},${3.5*w},0,${3.5*w}`, cap:"round" };
+    default:              return { dash:null,                         cap:"round" };
+  }
+}
+function renderTrajectories(xScale, yScale){
+  const xk=state.xKey, yk=state.yKey, xm=state.xMult, ym=state.yMult;
+  const line = d3.line().x(d=>d[0]).y(d=>d[1]).defined(d=>!!d);
+  const layers = state.layers.filter(L=> L.style.visible && L.series[xk] && L.series[yk]);
+  const sel = gTraj.selectAll("g.layer").data(layers, L=>L.id);
+  sel.exit().remove();
+  const ent = sel.enter().append("g").attr("class","layer");
+  ent.append("path").attr("class","line").attr("fill","none")
+     .attr("stroke-linejoin","round").attr("stroke-linecap","round");
+  const all = ent.merge(sel);
+  all.each(function(L){
+    const g = d3.select(this);
+    const xs=L.series[xk], ys=L.series[yk], n=Math.min(xs.length, ys.length);
+    const pts=[];
+    for(let i=0;i<n;i++){ const xv=xs[i]*xm, yv=ys[i]*ym;
+      pts.push((Number.isFinite(xv)&&Number.isFinite(yv)) ? [xScale(xv), yScale(yv)] : null); }
+    const ds = dashFor(L.style.dash, L.style.width);
+    g.select("path.line")
+     .attr("d", line(pts))
+     .attr("stroke", L.style.color).attr("stroke-width", L.style.width)
+     .attr("stroke-opacity", L.style.opacity)
+     .attr("stroke-dasharray", ds.dash).attr("stroke-linecap", ds.cap);
+    let marks = g.selectAll("circle").data(L.style.markers ? pts.filter(Boolean) : []);
+    marks.exit().remove();
+    marks.enter().append("circle").merge(marks)
+      .attr("r", L.style.markerSize||2).attr("fill", L.style.color)
+      .attr("cx",d=>d[0]).attr("cy",d=>d[1]);
+  });
+}
+
+function renderLegend(){
+  gLegend.selectAll("*").remove();
+  const box = $("legend-box");
+  const m = legendMetrics();
+  if(!m){ box.style.display="none"; box.innerHTML=""; return; }
+  const lb = legendBox();
+  box.style.left = lb.x + "px";
+  box.style.top  = lb.y + "px";
+  box.style.width = lb.w + "px";
+  box.style.maxHeight = lb.avail + "px";
+  box.title = "Drag to move · double-click to reset";
+  box.innerHTML = "";
+  m.items.forEach(L=>{
+    const row=document.createElement("div"); row.className="lg-row";
+    const svgNS="http://www.w3.org/2000/svg";
+    const h=Math.max(8, L.style.width+3);
+    const sw=document.createElementNS(svgNS,"svg"); sw.setAttribute("class","lg-swatch");
+    sw.setAttribute("width","22"); sw.setAttribute("height", String(h));
+    const ds=dashFor(L.style.dash, L.style.width);
+    const ln=document.createElementNS(svgNS,"line");
+    ln.setAttribute("x1","1"); ln.setAttribute("x2","21");
+    ln.setAttribute("y1", String(h/2)); ln.setAttribute("y2", String(h/2));
+    ln.setAttribute("stroke", L.style.color);
+    ln.setAttribute("stroke-width", String(Math.max(1.5, L.style.width)));
+    ln.setAttribute("stroke-linecap", ds.cap);
+    if(ds.dash) ln.setAttribute("stroke-dasharray", ds.dash);
+    sw.appendChild(ln);
+    const nm=document.createElement("span"); nm.className="lg-name";
+    nm.textContent=L.name; nm.title=L.name;
+    row.append(sw, nm); box.appendChild(row);
+  });
+  box.style.display = "block";
+}
+// Full, top-aligned SVG legend — drawn into gLegend transiently for export.
+function drawSvgLegend(mode){
+  gLegend.selectAll("*").remove();
+  const m = legendMetrics();
+  if(!m) return;
+  const lb = legendBox(mode);
+  const x = lb.x, y = lb.y;
+  const contentH = m.boxH, visibleH = lb.h;
+  const liveScroll = (mode==="view") || !legendIsOutside();
+  let offset = 0, scrollable = false;
+  if(liveScroll && contentH > visibleH){
+    const box = $("legend-box");
+    const denom = box.scrollHeight - box.clientHeight;
+    const frac = denom > 1 ? box.scrollTop / denom : 0;
+    const maxOff = Math.max(0, contentH - visibleH);
+    offset = frac * maxOff;
+    scrollable = maxOff > 0.5;
+  }
+  const th = THEME[state.theme];
+  const g = gLegend.attr("transform", `translate(${x},${y})`);
+  g.append("rect").attr("width", lb.w).attr("height", visibleH)
+   .attr("rx", 6).attr("fill", th.legendBg).attr("stroke", th.legendBorder);
+  g.append("defs").append("clipPath").attr("id", "lg-clip")
+   .append("rect").attr("width", lb.w).attr("height", visibleH);
+  const items = g.append("g").attr("clip-path", "url(#lg-clip)")
+                 .append("g").attr("transform", `translate(0,${-offset})`);
+  m.items.forEach((L,i)=>{
+    const yy = m.pad + i*m.lh + 8;
+    const ds = dashFor(L.style.dash, L.style.width);
+    const ln = items.append("line").attr("x1",m.pad).attr("y1",yy).attr("x2",m.pad+m.sw).attr("y2",yy)
+     .attr("stroke",L.style.color).attr("stroke-width", Math.max(2,L.style.width))
+     .attr("stroke-linecap", ds.cap);
+    if(ds.dash) ln.attr("stroke-dasharray", ds.dash);
+    items.append("text").attr("x",m.pad+m.sw+m.textGap).attr("y",yy+3.5)
+     .attr("font-family","ui-sans-serif,system-ui").attr("font-size",11).attr("fill",th.legendInk)
+     .text(L.name);
+  });
+  if(scrollable){
+    const sbW = 4, padR = 2;
+    const thumbH = Math.max(16, visibleH * (visibleH / contentH));
+    const thumbY = (visibleH - thumbH) * (offset / Math.max(1, contentH - visibleH));
+    g.append("rect").attr("x", lb.w - sbW - padR).attr("y", thumbY)
+     .attr("width", sbW).attr("height", thumbH).attr("rx", 2).attr("fill", th.legendScroll);
+  }
+}
+
+/* ============================================================================
+   LOADING LAYERS (embedded block, file drop, or paste)
+   ========================================================================== */
+let layerSeq=0;
+function normalizeLayer(raw, idx){
+  const style = raw.style || {};
+  // accept {series:{...}} or {data:{...}}; keep only array-valued fields
+  const src = raw.series || raw.data || {};
+  const series = {};
+  for(const k in src) if(Array.isArray(src[k])) series[k]=src[k];
+  return {
+    id: "L"+(layerSeq++),
+    name: raw.name || raw.title || ("series "+(idx+1)),
+    series,
+    style: {
+      color: style.color || LAYER_PALETTE[idx % LAYER_PALETTE.length],
+      width: style.width!=null ? +style.width : 1.5,
+      opacity: style.opacity!=null ? +style.opacity : 1,
+      markers: !!style.markers,
+      markerSize: style.markerSize || 2,
+      dash: ["dash","dot","long-dash","long-dash-dot"].includes(style.dash) ? style.dash : "solid",
+      visible: style.visible!==false,
+    },
+  };
+}
+function loadLayers(spec, append){
+  let raws;
+  if(Array.isArray(spec)) raws=spec;
+  else if(spec && Array.isArray(spec.layers)) raws=spec.layers;
+  else return false;
+  if(spec && spec.config && !append){ applyConfig(spec.config); }
+  const base = append ? state.layers.length : 0;
+  const norm = raws.map((r,i)=>normalizeLayer(r, base+i))
+                   .filter(L=>Object.keys(L.series).length);
+  state.layers = append ? state.layers.concat(norm) : norm;
+  ensureAxisKeys();
+  populateAxisSelectors();
+  render(); renderLayerList(); syncLimitFields();
+  return true;
+}
+
+/* ---- full-figure config (Save HTML) ---- */
+function currentConfig(){
+  return {
+    xKey:state.xKey, yKey:state.yKey, xMult:state.xMult, yMult:state.yMult,
+    xUnit:state.xUnit, yUnit:state.yUnit, xlim:state.xlim, ylim:state.ylim,
+    showGrid:state.showGrid, plotSize:state.plotSize, color:{...state.color},
+    showLegend:state.showLegend, legendLoc:state.legendLoc, theme:state.theme,
+  };
+}
+function applyConfig(cfg){
+  if(!cfg) return;
+  if(cfg.xKey) state.xKey=cfg.xKey;
+  if(cfg.yKey) state.yKey=cfg.yKey;
+  if(cfg.xMult!=null) state.xMult=cfg.xMult;
+  if(cfg.yMult!=null) state.yMult=cfg.yMult;
+  if("xUnit" in cfg) state.xUnit=cfg.xUnit||"";
+  if("yUnit" in cfg) state.yUnit=cfg.yUnit||"";
+  if("xlim" in cfg) state.xlim=cfg.xlim;
+  if("ylim" in cfg) state.ylim=cfg.ylim;
+  if("showGrid" in cfg) state.showGrid=!!cfg.showGrid;
+  if("plotSize" in cfg) state.plotSize=cfg.plotSize;
+  if(cfg.color) Object.assign(state.color, cfg.color);
+  if(cfg.theme){ applyTheme(cfg.theme); if(!cfg.color) state.color={...THEME[state.theme].palette}; }
+  if("showLegend" in cfg) state.showLegend=!!cfg.showLegend;
+  if(cfg.legendLoc) state.legendLoc=cfg.legendLoc;
+  syncControlsFromState();
+}
+function applyTheme(theme){
+  state.theme = theme==="dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = state.theme;
+  const t=$("dark-toggle"); if(t) t.checked = state.theme==="dark";
+}
+function setDarkMode(on){
+  applyTheme(on ? "dark" : "light");
+  state.color = { ...THEME[state.theme].palette };
+  syncColorInputs();
+  render();
+}
+function serializeLayers(){
+  return state.layers.map(L=>({
+    name:L.name, series:L.series,
+    style:{ color:L.style.color, width:L.style.width, opacity:L.style.opacity,
+            markers:L.style.markers, markerSize:L.style.markerSize,
+            dash:L.style.dash, visible:L.style.visible },
+  }));
+}
+function saveHtml(){
+  const spec = { config: currentConfig(), layers: serializeLayers() };
+  const payload = JSON.stringify(spec).replace(/</g,"\\u003c");
+  const html = PRISTINE_HTML.replace(
+    /(<script type="application\/json" id="plot2d-data">)([\s\S]*?)(<\/script>)/,
+    (m,a,b,c)=>a+payload+c);
+  download(new Blob([html],{type:"text/html"}), "plot2d-figure.html");
+}
+
+/* ---- control sync ---- */
+function syncColorInputs(){
+  $("c-grid").value=state.color.grid; $("c-axis").value=state.color.axis;
+}
+function populateAxisSelectors(){
+  const keys=allSeriesKeys();
+  [["x-key",state.xKey],["y-key",state.yKey]].forEach(([id,cur])=>{
+    const sel=$(id); sel.innerHTML="";
+    keys.forEach(k=>{ const o=document.createElement("option"); o.value=k; o.textContent=k; sel.appendChild(o); });
+    if(cur) sel.value=cur;
+  });
+}
+function syncControlsFromState(){
+  populateAxisSelectors();
+  $("x-mult").value=state.xMult; $("y-mult").value=state.yMult;
+  $("grid-toggle").checked=state.showGrid;
+  $("plot-size").value=state.plotSize; $("plot-size-val").textContent=Math.round(state.plotSize*100)+"%";
+  $("legend-toggle").checked=state.showLegend;
+  syncLegendLocControl();
+  $("dark-toggle").checked=state.theme==="dark";
+  syncColorInputs();
+  syncLimitFields();
+}
+function loadText(text, append){
+  let spec; try{ spec=JSON.parse(text); }
+  catch(e){ alert("Could not parse the file as JSON."); return; }
+  if(!loadLayers(spec, append)) alert("No series layers found in that data.");
+}
+
+/* ---- hover index + tooltip ---- */
+let trajQuad=null, trajDirty=true;
+function buildTrajIndex(){
+  if(!lastScales) return;
+  const {xScale,yScale,ix0,ix1,iy0,iy1}=lastScales;
+  const xk=state.xKey, yk=state.yKey, xm=state.xMult, ym=state.yMult;
+  const pts=[];
+  for(const L of state.layers){
+    if(!L.style.visible || !L.series[xk] || !L.series[yk]) continue;
+    const xs=L.series[xk], ys=L.series[yk], n=Math.min(xs.length, ys.length);
+    for(let i=0;i<n;i++){ const xv=xs[i]*xm, yv=ys[i]*ym;
+      if(!Number.isFinite(xv)||!Number.isFinite(yv)) continue;
+      const X=xScale(xv), Y=yScale(yv);
+      if(X<ix0||X>ix1||Y<iy0||Y>iy1) continue;
+      pts.push({x:X, y:Y, L, i}); }
+  }
+  trajQuad = d3.quadtree().x(d=>d.x).y(d=>d.y).addAll(pts);
+  trajDirty=false;
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])); }
+function fmtVal(v){ return Number.isFinite(v) ? (Math.abs(v)>=1e4||(Math.abs(v)<1e-3&&v!==0) ? v.toExponential(3) : +v.toFixed(4)) : v; }
+function showTip(hit, px, py){
+  const L=hit.L, i=hit.i;
+  let html = `<div class="tt-name">${escapeHtml(L.name)}</div>`;
+  const order = [state.xKey, state.yKey, ...Object.keys(L.series).filter(k=>k!==state.xKey&&k!==state.yKey)];
+  for(const k of order){
+    const arr=L.series[k]; if(!arr || i>=arr.length) continue;
+    const mult = k===state.xKey?state.xMult : k===state.yKey?state.yMult : 1;
+    html += `<div class="tt-row"><span>${escapeHtml(k)}</span>${escapeHtml(String(fmtVal(arr[i]*mult)))}</div>`;
+  }
+  const el=$("traj-tip");
+  el.innerHTML=html; el.style.display="block";
+  const tw=el.offsetWidth, th=el.offsetHeight;
+  let left = px+14>W-tw ? px-14-tw : px+14;
+  let top  = py+14>H-th ? py-14-th : py+14;
+  el.style.left=Math.max(2,left)+"px"; el.style.top=Math.max(2,top)+"px";
+}
+function hideTip(){ const el=$("traj-tip"); if(el) el.style.display="none"; }
+
+/* ============================================================================
+   POINTER INTERACTION  (Cartesian pan / box-zoom / double-click zoom)
+   ========================================================================== */
+const mapNode = $("map");
+let gesture=null;
+function ptr(ev){ const r=mapNode.getBoundingClientRect(); return [ev.clientX-r.left, ev.clientY-r.top]; }
+// Make the current effective domains explicit (used before a pan/zoom so the
+// view is captured even when it was on auto-fit).
+function commitDomains(){
+  if(!lastScales) return;
+  if(!state.xlim) state.xlim = lastScales.xScale.domain().slice();
+  if(!state.ylim) state.ylim = lastScales.yScale.domain().slice();
+}
+
+function startPan(p){
+  commitDomains();
+  gesture = { kind:"pan", p0:p, sc:lastScales,
+              xdom:lastScales.xScale.domain().slice(), ydom:lastScales.yScale.domain().slice() };
+}
+function movePan(p){
+  if(!gesture) return;
+  const sc=gesture.sc;
+  const dxd = sc.xScale.invert(gesture.p0[0]) - sc.xScale.invert(p[0]);
+  const dyd = sc.yScale.invert(gesture.p0[1]) - sc.yScale.invert(p[1]);
+  state.xlim = [gesture.xdom[0]+dxd, gesture.xdom[1]+dxd];
+  state.ylim = [gesture.ydom[0]+dyd, gesture.ydom[1]+dyd];
+  requestRender();
+}
+function startBox(p){ gesture={kind:"box", p0:p};
+  elRubber.style("display",null).attr("x",p[0]).attr("y",p[1]).attr("width",0).attr("height",0); }
+function moveBox(p){ if(!gesture) return;
+  const x=Math.min(p[0],gesture.p0[0]), y=Math.min(p[1],gesture.p0[1]);
+  elRubber.attr("x",x).attr("y",y).attr("width",Math.abs(p[0]-gesture.p0[0])).attr("height",Math.abs(p[1]-gesture.p0[1])); }
+function endBox(p){
+  elRubber.style("display","none");
+  if(!gesture || !lastScales) return;
+  const {xScale,yScale}=lastScales;
+  const x0=Math.min(gesture.p0[0],p[0]), x1=Math.max(gesture.p0[0],p[0]);
+  const y0=Math.min(gesture.p0[1],p[1]), y1=Math.max(gesture.p0[1],p[1]);
+  if(x1-x0<6 || y1-y0<6){ render(); return; }       // tiny drag → treat as click
+  state.xlim=[xScale.invert(x0), xScale.invert(x1)];
+  state.ylim=[yScale.invert(y1), yScale.invert(y0)]; // y inverted
+  setMode("pan");
+  render(); syncLimitFields();
+}
+// double-click: zoom in toward the cursor by a fixed factor
+function zoomAt(factor, p){
+  if(!lastScales) return;
+  commitDomains();
+  const {xScale,yScale}=lastScales;
+  const cx=xScale.invert(p[0]), cy=yScale.invert(p[1]);
+  const xd=state.xlim, yd=state.ylim;
+  state.xlim=[cx+(xd[0]-cx)/factor, cx+(xd[1]-cx)/factor];
+  state.ylim=[cy+(yd[0]-cy)/factor, cy+(yd[1]-cy)/factor];
+  render(); syncLimitFields();
+}
+
+mapNode.addEventListener("pointerdown", ev=>{
+  ev.preventDefault();
+  mapNode.setPointerCapture(ev.pointerId);
+  const p = ptr(ev);
+  const boxMode = state.mode==="box" || ev.shiftKey;
+  dragging=true;
+  if(boxMode){ mapNode.classList.add("boxing"); startBox(p); }
+  else       { mapNode.classList.add("panning"); startPan(p); }
+});
+mapNode.addEventListener("pointermove", ev=>{
+  const p = ptr(ev);
+  if(lastScales){
+    const inside = p[0]>=lastScales.ix0 && p[0]<=lastScales.ix1 && p[1]>=lastScales.iy0 && p[1]<=lastScales.iy1;
+    $("st-x").textContent = inside ? String(fmtVal(lastScales.xScale.invert(p[0]))) : "—";
+    $("st-y").textContent = inside ? String(fmtVal(lastScales.yScale.invert(p[1]))) : "—";
+  }
+  if(dragging && gesture){
+    hideTip();
+    if(gesture.kind==="box") moveBox(p); else movePan(p);
+    return;
+  }
+  if(state.layers.length){
+    if(trajDirty) buildTrajIndex();
+    const hit = trajQuad ? trajQuad.find(p[0], p[1], 9) : null;
+    if(hit) showTip(hit, p[0], p[1]); else hideTip();
+  }
+});
+function finishGesture(ev){
+  if(!dragging) return;
+  const p = ptr(ev);
+  const kind = gesture && gesture.kind;
+  if(kind==="box") endBox(p);
+  dragging=false; gesture=null;
+  mapNode.classList.remove("panning","boxing");
+  render();
+  if(kind==="pan") syncLimitFields();
+}
+mapNode.addEventListener("pointerup", finishGesture);
+mapNode.addEventListener("pointercancel", finishGesture);
+mapNode.addEventListener("dblclick", ev=> zoomAt(1.8, ptr(ev)));
+mapNode.addEventListener("pointerleave", ()=>{ hideTip(); $("st-x").textContent="—"; $("st-y").textContent="—"; });
+
+/* ============================================================================
+   AXIS LIMITS  (manual entry, in display units)
+   ========================================================================== */
+function effectiveDomains(){
+  return {
+    x: state.xlim || axisExtent(state.xKey, state.xMult),
+    y: state.ylim || axisExtent(state.yKey, state.yMult),
+  };
+}
+function syncLimitFields(){
+  const d=effectiveDomains();
+  const r=v=> Math.abs(v)>=1e4||(Math.abs(v)<1e-3&&v!==0) ? v.toExponential(3) : +v.toFixed(4);
+  $("x-min").value=r(d.x[0]); $("x-max").value=r(d.x[1]);
+  $("y-min").value=r(d.y[0]); $("y-max").value=r(d.y[1]);
+}
+function applyLimitsFromFields(){
+  const xa=parseFloat($("x-min").value), xb=parseFloat($("x-max").value);
+  const ya=parseFloat($("y-min").value), yb=parseFloat($("y-max").value);
+  if(isFinite(xa)&&isFinite(xb)&&xb>xa) state.xlim=[xa,xb];
+  if(isFinite(ya)&&isFinite(yb)&&yb>ya) state.ylim=[ya,yb];
+  render(); syncLimitFields();
+}
+function autoFit(){ state.xlim=null; state.ylim=null; render(); syncLimitFields(); }
+
+/* ============================================================================
+   AXIS SELECTION + MULTIPLIERS
+   ========================================================================== */
+function setXKey(k){ state.xKey=k; state.xMult=1; state.xUnit=""; state.xlim=null;
+  $("x-mult").value=1; $("x-preset").value=""; render(); syncLimitFields(); }
+function setYKey(k){ state.yKey=k; state.yMult=1; state.yUnit=""; state.ylim=null;
+  $("y-mult").value=1; $("y-preset").value=""; render(); syncLimitFields(); }
+// Changing a multiplier rescales any explicit limit by the same ratio, so the
+// view stays put and only the tick numbers (and unit) change.
+function setXMult(m, unit){
+  if(!isFinite(m) || m===0) return;
+  const old=state.xMult||1, ratio=m/old;
+  if(state.xlim) state.xlim=state.xlim.map(v=>v*ratio);
+  state.xMult=m; if(unit!==undefined) state.xUnit=unit;
+  $("x-mult").value=m; render(); syncLimitFields();
+}
+function setYMult(m, unit){
+  if(!isFinite(m) || m===0) return;
+  const old=state.yMult||1, ratio=m/old;
+  if(state.ylim) state.ylim=state.ylim.map(v=>v*ratio);
+  state.yMult=m; if(unit!==undefined) state.yUnit=unit;
+  $("y-mult").value=m; render(); syncLimitFields();
+}
+
+/* ============================================================================
+   CONTROL WIRING
+   ========================================================================== */
+function setMode(m){ state.mode=m;
+  $("mode-pan").setAttribute("aria-pressed", m==="pan");
+  $("mode-box").setAttribute("aria-pressed", m==="box");
+  mapNode.style.cursor = m==="box" ? "crosshair" : "grab";
+}
+$("mode-pan").addEventListener("click",()=>setMode("pan"));
+$("mode-box").addEventListener("click",()=>setMode("box"));
+
+$("x-key").addEventListener("change", e=> setXKey(e.target.value));
+$("y-key").addEventListener("change", e=> setYKey(e.target.value));
+$("x-mult").addEventListener("input", e=>{ setXMult(parseFloat(e.target.value), ""); $("x-preset").value=""; });
+$("y-mult").addEventListener("input", e=>{ setYMult(parseFloat(e.target.value), ""); $("y-preset").value=""; });
+$("x-preset").addEventListener("change", e=>{ const i=+e.target.value; if(MULT_PRESETS[i]){ setXMult(MULT_PRESETS[i].k, MULT_PRESETS[i].unit); } e.target.value=""; });
+$("y-preset").addEventListener("change", e=>{ const i=+e.target.value; if(MULT_PRESETS[i]){ setYMult(MULT_PRESETS[i].k, MULT_PRESETS[i].unit); } e.target.value=""; });
+
+$("grid-toggle").addEventListener("change", e=>{ state.showGrid=e.target.checked; render(); });
+$("plot-size").addEventListener("input", e=>{
+  state.plotSize = parseFloat(e.target.value)||1;
+  $("plot-size-val").textContent = Math.round(state.plotSize*100)+"%";
+  render();
+});
+$("apply-lims").addEventListener("click", applyLimitsFromFields);
+(function(){
+  const bg=document.querySelectorAll("#x-min,#x-max,#y-min,#y-max");
+  bg.forEach(inp=> inp.addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); applyLimitsFromFields(); }}));
+})();
+$("clear-lims").addEventListener("click", autoFit);
+
+/* ---- series controls ---- */
+function renderLayerList(){
+  const host=$("layer-list"); host.innerHTML="";
+  if(!state.layers.length){
+    const p=document.createElement("p"); p.className="muted-note"; p.textContent="No series loaded.";
+    host.appendChild(p); return;
+  }
+  state.layers.forEach(L=>{
+    const row=document.createElement("div"); row.className="layer-row";
+    const top=document.createElement("div"); top.className="lr-top";
+    const bot=document.createElement("div"); bot.className="lr-bot";
+    const vis=document.createElement("input"); vis.type="checkbox"; vis.checked=L.style.visible; vis.title="show / hide";
+    vis.addEventListener("change",()=>{ L.style.visible=vis.checked; render(); });
+    const col=document.createElement("input"); col.type="color"; col.value=L.style.color; col.title="colour";
+    col.addEventListener("input",()=>{ L.style.color=col.value; render(); });
+    const name=document.createElement("span"); name.className="ln"; name.textContent=L.name; name.title=L.name;
+    const w=document.createElement("input"); w.type="number"; w.className="lw"; w.value=L.style.width;
+    w.min="0.2"; w.max="8"; w.step="0.1"; w.title="line width";
+    w.addEventListener("input",()=>{ const v=parseFloat(w.value); if(isFinite(v)){ L.style.width=v; render(); } });
+    const lds=document.createElement("select"); lds.className="lds"; lds.title="line style";
+    [["solid","———"],["dash","- - -"],["dot","· · ·"],["long-dash","— —"],["long-dash-dot","—·—"]]
+      .forEach(([v,t])=>{ const o=document.createElement("option"); o.value=v; o.textContent=t; lds.appendChild(o); });
+    lds.value=L.style.dash || "solid";
+    lds.addEventListener("change",()=>{ L.style.dash=lds.value; render(); });
+    const spacer=document.createElement("span"); spacer.className="lr-spacer";
+    const del=document.createElement("button"); del.className="layer-del"; del.textContent="×"; del.title="remove this series";
+    del.addEventListener("click",()=>{ state.layers=state.layers.filter(x=>x!==L); ensureAxisKeys(); populateAxisSelectors(); render(); renderLayerList(); });
+    top.append(vis,col,name);
+    bot.append(w,lds,spacer,del);
+    row.append(top,bot);
+    host.appendChild(row);
+  });
+}
+function readFile(file){
+  if(!file) return;
+  const r=new FileReader(); r.onload=()=>loadText(r.result, false); r.readAsText(file);
+}
+$("load-file").addEventListener("click", ()=>$("file-input").click());
+$("file-input").addEventListener("change", e=>{ readFile(e.target.files[0]); e.target.value=""; });
+$("legend-toggle").addEventListener("change", e=>{ state.showLegend=e.target.checked; render(); });
+$("dark-toggle").addEventListener("change", e=>{ setDarkMode(e.target.checked); });
+$("markers-toggle").addEventListener("change", e=>{
+  const on=e.target.checked; state.layers.forEach(L=>L.style.markers=on); render();
+});
+
+// ---- legend placement (dropdown + drag) ----------------------------------
+function syncLegendLocControl(){
+  const s=$("legend-loc"); if(s) s.value = Array.isArray(state.legendLoc) ? "custom" : state.legendLoc;
+}
+function setLegendLoc(loc){
+  const prevSide = legendSide();
+  if(loc==="custom"){
+    if(!Array.isArray(state.legendLoc)) state.legendLoc=[0.04,0.04];
+  } else state.legendLoc = loc;
+  if(legendSide()!==prevSide) {/* strip change → reflow on next render */}
+  syncLegendLocControl();
+  render();
+}
+$("legend-loc").addEventListener("change", e=> setLegendLoc(e.target.value));
+
+(function(){
+  const box = $("legend-box");
+  const wrap = $("wrap");
+  let drag = null;
+  const wrapPt = ev => { const r=wrap.getBoundingClientRect(); return [ev.clientX-r.left, ev.clientY-r.top]; };
+  function placeAt(absX, absY){
+    const m=legendMetrics(); if(!m) return;
+    if(legendSide()!==null){ state.legendLoc=[0.5,0.05]; render(); }
+    const [mapL,mapR]=mapLeftRight(), [mapT,mapB]=mapTopBottom();
+    const mapW=mapR-mapL, mapH=mapB-mapT, w=m.boxW, h=Math.min(m.boxH, mapH);
+    const x=Math.max(0, Math.min(W-w, absX));
+    const y=Math.max(0, Math.min(H-h, absY));
+    state.legendLoc=[(x-mapL)/mapW, (y-mapT)/mapH];
+    box.style.left=x+"px"; box.style.top=y+"px";
+    syncLegendLocControl();
+  }
+  box.addEventListener("pointerdown", ev=>{
+    if(ev.button!==0) return;
+    if(ev.offsetX >= box.clientWidth) return;
+    ev.preventDefault();
+    const p=wrapPt(ev);
+    drag={ dx:p[0]-box.offsetLeft, dy:p[1]-box.offsetTop };
+    box.classList.add("dragging");
+    try{ box.setPointerCapture(ev.pointerId); }catch(e){}
+  });
+  box.addEventListener("pointermove", ev=>{
+    if(!drag) return;
+    const p=wrapPt(ev);
+    placeAt(p[0]-drag.dx, p[1]-drag.dy);
+  });
+  function end(ev){
+    if(!drag) return;
+    drag=null; box.classList.remove("dragging");
+    try{ box.releasePointerCapture(ev.pointerId); }catch(e){}
+    render();
+  }
+  box.addEventListener("pointerup", end);
+  box.addEventListener("pointercancel", end);
+  box.addEventListener("dblclick", ()=> setLegendLoc("right-outside"));
+})();
+
+// drag & drop onto the plot
+(function(){
+  const wrap=$("wrap");
+  ["dragenter","dragover"].forEach(t=>wrap.addEventListener(t, e=>{ e.preventDefault(); wrap.classList.add("dropping"); }));
+  wrap.addEventListener("dragleave", e=>{ if(!wrap.contains(e.relatedTarget)) wrap.classList.remove("dropping"); });
+  wrap.addEventListener("drop", e=>{ e.preventDefault(); wrap.classList.remove("dropping"); readFile(e.dataTransfer.files[0]); });
+})();
+
+const colorMap={ "c-grid":"grid", "c-axis":"axis" };
+Object.keys(colorMap).forEach(id=>{
+  $(id).addEventListener("input", e=>{ state.color[colorMap[id]]=e.target.value; render(); });
+});
+
+function resetView(){
+  state.xlim=null; state.ylim=null;
+  state.showGrid=true; state.plotSize=0.95;
+  state.color={...THEME[state.theme].palette};
+  state.legendLoc="right-outside";
+  $("grid-toggle").checked=true;
+  $("plot-size").value=0.95; $("plot-size-val").textContent="95%";
+  syncLegendLocControl(); syncColorInputs();
+  render(); syncLimitFields();
+}
+$("reset").addEventListener("click", resetView);
+
+/* ---------- export ---------- */
+function serializeSVG(mode){
+  const r = mode==="view" ? figureRectView() : figureRect();
+  drawSvgLegend(mode);
+  const clone = mapNode.cloneNode(true);
+  gLegend.selectAll("*").remove();
+  clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+  clone.setAttribute("width", Math.round(r.w)); clone.setAttribute("height", Math.round(r.h));
+  clone.setAttribute("viewBox", `${r.x} ${r.y} ${r.w} ${r.h}`);
+  const bg = document.createElementNS("http://www.w3.org/2000/svg","rect");
+  bg.setAttribute("x",r.x); bg.setAttribute("y",r.y); bg.setAttribute("width",r.w); bg.setAttribute("height",r.h);
+  bg.setAttribute("fill",THEME[state.theme].figureBg);
+  clone.insertBefore(bg, clone.firstChild);
+  const rub = clone.querySelector(".rubber"); if(rub) rub.remove();
+  return new XMLSerializer().serializeToString(clone);
+}
+function download(blob, name){ const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
+
+$("dl-svg").addEventListener("click", ()=>{
+  download(new Blob([serializeSVG("full")],{type:"image/svg+xml"}), "plot2d.svg");
+});
+$("dl-png").addEventListener("click", ()=>{
+  const scale=+$("png-scale").value;
+  const r=figureRectView();
+  const svgStr=serializeSVG("view");
+  const img=new Image();
+  img.onload=()=>{
+    const c=document.createElement("canvas"); c.width=Math.round(r.w*scale); c.height=Math.round(r.h*scale);
+    const ctx=c.getContext("2d"); ctx.drawImage(img,0,0,c.width,c.height);
+    c.toBlob(b=>download(b,`plot2d@${scale}x.png`),"image/png");
+  };
+  img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svgStr);
+});
+$("png-scale").addEventListener("change", updatePngDims);
+$("save-html").addEventListener("click", saveHtml);
+
+/* ============================================================================
+   SIZING + BOOT
+   ========================================================================== */
+function resize(){
+  const r = $("wrap").getBoundingClientRect();
+  const nw = Math.max(200,Math.round(r.width));
+  const nh = Math.max(200,Math.round(r.height));
+  if(nw===W && nh===H) return;
+  W = nw; H = nh;
+  svg.attr("viewBox",`0 0 ${W} ${H}`).attr("width",W).attr("height",H);
+  render();
+}
+new ResizeObserver(()=>resize()).observe($("wrap"));
+
+(function init(){
+  // populate the multiplier preset dropdowns
+  ["x-preset","y-preset"].forEach(id=>{
+    const sel=$(id); const o0=document.createElement("option"); o0.value=""; o0.textContent="preset…"; sel.appendChild(o0);
+    MULT_PRESETS.forEach((p,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=p.label; sel.appendChild(o); });
+  });
+  const r=$("wrap").getBoundingClientRect();
+  W=Math.round(r.width)||800; H=Math.round(r.height)||600;
+  svg.attr("viewBox",`0 0 ${W} ${H}`).attr("width",W).attr("height",H);
+  syncColorInputs();
+  // load any series embedded by a generator (e.g. a Python script)
+  const tag=$("plot2d-data");
+  if(tag && tag.textContent.trim()){
+    try{ loadLayers(JSON.parse(tag.textContent)); }catch(e){ console.warn("embedded plot2d-data is not valid JSON", e); }
+  }
+  render(); renderLayerList(); syncLimitFields();
+})();
+</script>
+</body>
+</html>
