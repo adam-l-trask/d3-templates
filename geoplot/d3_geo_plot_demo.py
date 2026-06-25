@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""cartoplot_demo.py — generate a batch of trajectories and bake them into a
-self-contained Cartoplot HTML figure.
+"""d3_geo_plot_demo.py — generate a batch of trajectories and bake them into a
+self-contained Geoplot HTML figure.
 
 What it does
 ------------
 Builds ~20 great-circle airline routes between real airports, each carrying
 per-point tooltip data (elapsed minutes, altitude, ground speed), plus one
 filled polygon to show the "polygon" layer type, then embeds everything into the
-Cartoplot template and writes a ready-to-open HTML file with the legend turned on.
+Geoplot template and writes a ready-to-open HTML file with the legend turned on.
 
 Usage
 -----
-    python cartoplot_demo.py                         # template: ./cartoplot.html  ->  ./cartoplot_demo.html
-    python cartoplot_demo.py cartoplot.html out.html   # explicit template / output
+    python d3_geo_plot_demo.py                         # template: ./d3_geo_plot.html  ->  ./d3_geo_plot_demo.html
+    python d3_geo_plot_demo.py d3_geo_plot.html out.html   # explicit template / output
 
 It writes two figures: the normal CDN-backed one, and — if the offline assets
 are available (it offers to download them once) — a fully self-contained
-"cartoplot_demo_offline.html" that opens with no internet. See the offline notes
-in cartoplot_embed.embed() / download_offline_assets().
+"d3_geo_plot_demo_offline.html" that opens with no internet. See the offline notes
+in d3_geo_plot_embed.embed() / download_offline_assets().
 
-It only needs the standard library. (The cartoplot_embed helper also accepts
+It only needs the standard library. (The d3_geo_plot_embed helper also accepts
 pandas DataFrames via layer_from_dataframe if you'd rather feed it a frame.)
 """
 import math
@@ -28,7 +28,7 @@ import sys
 
 # Make sure we can import the sibling helper regardless of the working directory.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cartoplot_embed import (path_layer, polygon_layer, embed,
+from d3_geo_plot_embed import (path_layer, polygon_layer, embed,
                              download_offline_assets, OFFLINE_ASSETS,
                              ASSET_DIR_DEFAULT)
 
@@ -175,22 +175,21 @@ def build_layers():
         styles = ("solid", "dash", "dot", "long-dash", "long-dash-dot")
         layers.append(path_layer(
             [c[0] for c in coords], [c[1] for c in coords],
-            # name=f"{origin} \u2192 {dest}",
-            name=f"Phase_{i}",
+            name=f"{origin} \u2192 {dest}",
             color=color, width=1.5, line_style=styles[i % len(styles)],
             elapsed_min=elapsed, alt_ft=alt, speed_kt=spd,
         ))
 
     # One filled polygon, via the dedicated polygon_layer helper. These vertices
-    # are wound counter-clockwise, which we declare so Cartoplot orders the ring
+    # are wound counter-clockwise, which we declare so Geoplot orders the ring
     # for d3 and fills the enclosed area (not the rest of the globe).
     ring = [(-45, 40), (-15, 45), (-10, 60), (-50, 58)]
-    # layers.append(polygon_layer(
-    #     [p[0] for p in ring], [p[1] for p in ring],
-    #     name="N. Atlantic watch area",
-    #     color="#37506b", width=1.2, opacity=0.9, fill_opacity=0.12,
-    #     winding="ccw",
-    # ))
+    layers.append(polygon_layer(
+        [p[0] for p in ring], [p[1] for p in ring],
+        name="N. Atlantic watch area",
+        color="#37506b", width=1.2, opacity=0.9, fill_opacity=0.12,
+        winding="ccw",
+    ))
     return layers
 
 
@@ -202,8 +201,8 @@ def _assets_ready(assets_dir):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    template = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "cartoplot.html")
-    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "cartoplot_demo.html")
+    template = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "d3_geo_plot.html")
+    out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "d3_geo_plot_demo.html")
 
     layers = build_layers()
     # Open with the legend shown (there are enough routes that it scrolls on a
@@ -225,7 +224,7 @@ def main():
     # template; step two embeds from it. Here we auto-download if it's missing and
     # skip gracefully if there's no connection.
     assets_dir = os.path.join(here, ASSET_DIR_DEFAULT)
-    offline_out = os.path.join(here, "cartoplot_demo_offline.html")
+    offline_out = os.path.join(here, "d3_geo_plot_demo_offline.html")
 
     if not _assets_ready(assets_dir):
         print(f"Fetching offline assets into {assets_dir}{os.sep} (needs internet)…")
@@ -240,7 +239,7 @@ def main():
         print(f"Wrote {offline_out}  (offline: self-contained, {size_mb:.1f} MB)")
     else:
         print("Skipped offline build — populate the assets folder first, e.g.:")
-        print(f"    python -c \"import cartoplot_embed as c; c.download_offline_assets('{assets_dir}')\"")
+        print(f"    python -c \"import d3_geo_plot_embed as c; c.download_offline_assets('{assets_dir}')\"")
         print("  (or drop d3.min.js, topojson.min.js, countries-110m.json and "
               "countries-50m.json in by hand — see OFFLINE_ASSETS for source URLs).")
 

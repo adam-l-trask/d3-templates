@@ -1,8 +1,8 @@
-"""Embed trajectory layers into a Cartoplot HTML figure.
+"""Embed trajectory layers into a Geoplot HTML figure.
 
-A Cartoplot template contains an empty data block::
+A Geoplot template contains an empty data block::
 
-    <script type="application/json" id="cartoplot-data"></script>
+    <script type="application/json" id="geoplot-data"></script>
 
 This module builds layer specs from plain arrays (or a pandas DataFrame) and
 writes them into that block, producing a self-contained HTML figure. You never
@@ -10,21 +10,21 @@ hand-write the JSON.
 
 Quick start::
 
-    from cartoplot_embed import path_layer, embed
+    from d3_geo_plot_embed import path_layer, embed
 
     layers = [
         path_layer(lons, lats, name="Flight 123",
                    color="#c1572e", width=1.6,
                    time=timestamps, altitude=altitudes),  # extra fields -> tooltips
     ]
-    embed("cartoplot.html", layers, "cartoplot_flight.html")
+    embed("d3_geo_plot.html", layers, "geoplot_flight.html")
 
 From a pandas DataFrame::
 
-    from cartoplot_embed import layer_from_dataframe, embed
+    from d3_geo_plot_embed import layer_from_dataframe, embed
 
     layer = layer_from_dataframe(df, lon="lon", lat="lat", name="Track A")
-    embed("cartoplot.html", [layer], "out.html")
+    embed("d3_geo_plot.html", [layer], "out.html")
 
 Layer schema (built for you by the helpers; shown for reference)::
 
@@ -126,7 +126,7 @@ def polygon_layer(lons, lats, name=None, color=None, width=None, opacity=None,
     is filled.
 
     The ``winding`` argument declares the order your vertices are actually in.
-    Cartoplot orients the ring for d3-geo accordingly so the region your ring
+    Geoplot orients the ring for d3-geo accordingly so the region your ring
     *encloses* is the one that fills: a ``"cw"`` ring is used as-is and a
     ``"ccw"`` ring is reversed internally. ``"ccw"`` is the default because it
     matches standard GeoJSON exterior rings. To fill the complementary region
@@ -191,7 +191,7 @@ def layer_from_dataframe(df, lon="lon", lat="lat", name=None, color=None,
 
 
 _BLOCK = re.compile(
-    r'(<script type="application/json" id="cartoplot-data">)(.*?)(</script>)', re.S)
+    r'(<script type="application/json" id="geoplot-data">)(.*?)(</script>)', re.S)
 
 # ---------------------------------------------------------------------------
 # Offline support
@@ -202,7 +202,7 @@ _BLOCK = re.compile(
 # opens with no network at all. The assets live in a folder you populate once
 # (download_offline_assets, which needs internet) or fill in by hand.
 # ---------------------------------------------------------------------------
-ASSET_DIR_DEFAULT = "cartoplot_assets"
+ASSET_DIR_DEFAULT = "d3_geo_plot_assets"
 
 # logical name -> (local filename, CDN url). The JS versions must match the
 # template's CDN <script> tags so the offline build behaves identically.
@@ -213,7 +213,7 @@ OFFLINE_ASSETS = {
     "atlas-50m":  ("countries-50m.json", "https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json"),
 }
 
-_LIBS_BLOCK = re.compile(r"<!-- cartoplot:libs.*?-->.*?<!-- /cartoplot:libs -->", re.S)
+_LIBS_BLOCK = re.compile(r"<!-- geoplot:libs.*?-->.*?<!-- /geoplot:libs -->", re.S)
 
 
 def download_offline_assets(dest_dir=ASSET_DIR_DEFAULT, overwrite=False):
@@ -240,7 +240,7 @@ def download_offline_assets(dest_dir=ASSET_DIR_DEFAULT, overwrite=False):
         dest = os.path.join(dest_dir, fn)
         if os.path.exists(dest) and not overwrite:
             continue
-        req = urllib.request.Request(url, headers={"User-Agent": "cartoplot-offline/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "d3-geo-plot-offline/1.0"})
         with urllib.request.urlopen(req, timeout=60) as r:
             data = r.read()
         with open(dest, "wb") as f:
@@ -298,17 +298,17 @@ def _inline_libraries(html, assets_dir):
         str: HTML with the libraries inlined.
 
     Raises:
-        ValueError: If the ``cartoplot:libs`` marker block is absent.
+        ValueError: If the ``geoplot:libs`` marker block is absent.
         FileNotFoundError: If a library asset is missing.
     """
     d3_js = _read_asset(assets_dir, OFFLINE_ASSETS["d3"][0])
     topo_js = _read_asset(assets_dir, OFFLINE_ASSETS["topojson"][0])
     # A literal </script> inside library text would close the tag early; neutralise it.
     esc = lambda js: js.replace("</script>", r"<\/script>")
-    inline = ("<!-- cartoplot:libs (inlined for offline use) -->\n"
+    inline = ("<!-- geoplot:libs (inlined for offline use) -->\n"
               "<script>" + esc(d3_js) + "</script>\n"
               "<script>" + esc(topo_js) + "</script>\n"
-              "<!-- /cartoplot:libs -->")
+              "<!-- /geoplot:libs -->")
     if not _LIBS_BLOCK.search(html):
         raise ValueError("libs marker block not found — template too old for offline embedding.")
     return _LIBS_BLOCK.sub(lambda m: inline, html, count=1)
@@ -335,7 +335,7 @@ def _embed_atlas(html, assets_dir):
         # JSON valid (JSON.parse turns \u003c back into '<') and tag-safe.
         payload = raw.replace("<", r"\u003c")
         blk = re.compile(
-            r'(<script type="application/json" id="cartoplot-atlas-' + res + r'">)(.*?)(</script>)', re.S)
+            r'(<script type="application/json" id="geoplot-atlas-' + res + r'">)(.*?)(</script>)', re.S)
         if not blk.search(html):
             raise ValueError(f"atlas block for {res} not found — template too old for offline embedding.")
         html = blk.sub(lambda m: m.group(1) + payload + m.group(3), html, count=1)
@@ -344,11 +344,11 @@ def _embed_atlas(html, assets_dir):
 
 def embed(template_path, layers, out_path=None, config=None,
           offline=False, assets_dir=ASSET_DIR_DEFAULT):
-    """Inject trajectory layers into a Cartoplot template and write the figure.
+    """Inject trajectory layers into a Geoplot template and write the figure.
 
     Args:
-        template_path (str): Path to a Cartoplot HTML template (the file
-            containing the empty ``cartoplot-data`` block).
+        template_path (str): Path to a Geoplot HTML template (the file
+            containing the empty ``geoplot-data`` block).
         layers (Sequence[dict]): Layer specs from :func:`path_layer`,
             :func:`polygon_layer`, or :func:`layer_from_dataframe`.
         out_path (str, optional): Where to write the result. If omitted, the
@@ -377,14 +377,14 @@ def embed(template_path, layers, out_path=None, config=None,
         str: The path written (``out_path``, or ``template_path`` if overwritten).
 
     Raises:
-        ValueError: If the template lacks the ``cartoplot-data`` block.
+        ValueError: If the template lacks the ``geoplot-data`` block.
         FileNotFoundError: If ``offline`` is requested but an asset is missing.
     """
     with open(template_path, encoding="utf-8") as f:
         html = f.read()
     if not _BLOCK.search(html):
-        raise ValueError("Could not find the <script id=\"cartoplot-data\"> block "
-                         "in the template — is this a Cartoplot HTML file?")
+        raise ValueError("Could not find the <script id=\"geoplot-data\"> block "
+                         "in the template — is this a Geoplot HTML file?")
     spec = {"layers": list(layers)}
     if config:
         spec["config"] = config
@@ -415,5 +415,5 @@ if __name__ == "__main__":
         t.append(f"T+{int(f*7*60)}min")
     demo = path_layer(lons, lats, name="NYC -> LHR", color="#c1572e", width=1.8,
                       time=t, altitude=alt)
-    embed("cartoplot.html", [demo], "cartoplot_demo.html")
-    print("wrote cartoplot_demo.html")
+    embed("d3_geo_plot.html", [demo], "d3_geo_plot_demo.html")
+    print("wrote d3_geo_plot_demo.html")
