@@ -1211,27 +1211,34 @@ function renderPins(){
 
 // Draw pins into the SVG for export (the live label boxes are HTML overlays, so
 // they don't appear in serialized SVG/PNG; this redraws them as SVG).
+// The exported box uses its own tight 3-line layout (matching the HTML padding)
+// rather than the HTML box's measured height, which left extra space at the bottom.
+function pinSvgGeom(){
+  const padX=9, lh=16;
+  const nameY=18, r1Y=nameY+lh, r2Y=r1Y+lh, h=r2Y+6;   // name, x row, y row + bottom padding
+  return { padX, nameY, r1Y, r2Y, h };
+}
 function drawSvgPins(){
   gPins.selectAll("*").remove();
-  const th=THEME[state.theme], fz=11, padX=9;
+  const th=THEME[state.theme], fz=11, g=pinSvgGeom();
   for(const pin of state.pins){
     const a=pinAnchor(pin); if(!a || !a.inside) continue;
     const rec=pinEls.get(pin.id); if(!rec || rec.box.style.display==="none") continue;
     const bx=parseFloat(rec.box.style.left)||0, by=parseFloat(rec.box.style.top)||0;
-    const bw=rec.box.offsetWidth, bh=rec.box.offsetHeight;
+    const bw=rec.box.offsetWidth, bh=g.h;
     gPins.append("line").attr("x1",a.x).attr("y1",a.y).attr("x2",bx).attr("y2",by)
       .attr("stroke",th.frame).attr("stroke-width",0.8).attr("stroke-opacity",0.45);
     gPins.append("circle").attr("cx",a.x).attr("cy",a.y).attr("r",PIN_DOT_R)
       .attr("fill",a.L.style.color).attr("stroke",th.plotBg).attr("stroke-width",1.6);
     gPins.append("rect").attr("x",bx).attr("y",by).attr("width",bw).attr("height",bh)
       .attr("rx",7).attr("fill",th.legendBg).attr("stroke",th.legendBorder);
-    gPins.append("text").attr("x",bx+padX).attr("y",by+15).attr("font-family",FONT)
+    gPins.append("text").attr("x",bx+g.padX).attr("y",by+g.nameY).attr("font-family",FONT)
       .attr("font-size",fz).attr("font-weight",650).attr("fill",th.legendInk).text(a.L.name);
-    [[state.xKey,a.xv],[state.yKey,a.yv]].forEach(([k,v],r)=>{
-      const ry=by+30+r*15;
-      gPins.append("text").attr("x",bx+padX).attr("y",ry).attr("font-family",FONT)
+    [[state.xKey,a.xv,g.r1Y],[state.yKey,a.yv,g.r2Y]].forEach(([k,v,ryOff])=>{
+      const ry=by+ryOff;
+      gPins.append("text").attr("x",bx+g.padX).attr("y",ry).attr("font-family",FONT)
         .attr("font-size",fz).attr("fill",th.legendInk).attr("fill-opacity",0.55).text(k);
-      gPins.append("text").attr("x",bx+bw-padX).attr("y",ry).attr("text-anchor","end")
+      gPins.append("text").attr("x",bx+bw-g.padX).attr("y",ry).attr("text-anchor","end")
         .attr("font-family",FONT).attr("font-size",fz).attr("fill",th.legendInk).text(fmtVal(v));
     });
   }
@@ -1239,11 +1246,12 @@ function drawSvgPins(){
 // Bounding box of all on-screen pins (anchor dots + label boxes), for export sizing.
 function pinsBBox(){
   let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,any=false;
+  const pinH=pinSvgGeom().h;
   for(const pin of state.pins){
     const a=pinAnchor(pin); if(!a || !a.inside) continue;
     const rec=pinEls.get(pin.id); if(!rec || rec.box.style.display==="none") continue;
     const bx=parseFloat(rec.box.style.left)||0, by=parseFloat(rec.box.style.top)||0;
-    const bw=rec.box.offsetWidth, bh=rec.box.offsetHeight;
+    const bw=rec.box.offsetWidth, bh=pinH;
     x0=Math.min(x0,a.x,bx); y0=Math.min(y0,a.y,by);
     x1=Math.max(x1,a.x,bx+bw); y1=Math.max(y1,a.y,by+bh); any=true;
   }
