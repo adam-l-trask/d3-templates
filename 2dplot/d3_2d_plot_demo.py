@@ -88,10 +88,10 @@ def build_layers():
                                "time": s["time"], "speed": s["speed"]})
             layers.append(layer_from_dataframe(
                 df, name=spec["name"], color=spec["color"],
-                width=1.8, line_style=spec["dash"]))
+                width=2.5, line_style=spec["dash"]))
         else:
             layers.append(series_layer(
-                name=spec["name"], color=spec["color"], width=1.8,
+                name=spec["name"], color=spec["color"], width=2.5,
                 line_style=spec["dash"],
                 downrange=s["downrange"], altitude=s["altitude"],
                 time=s["time"], speed=s["speed"]))

@@ -17,6 +17,7 @@
     --legend-bg:#ffffffea; --grid-line:#00000003;
     --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
     --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: light;
   }
   /* Dark mode re-paints the whole UI by overriding the same variables. Plot
      colours (grid/axis) are NOT here — they live in state and are swapped in
@@ -26,6 +27,7 @@
     --ink:#e8eaed; --muted:#9aa6b0; --faint:#6b7782;
     --accent:#d2693f; --accent-weak:#d2693f2e;
     --legend-bg:#19222bee; --grid-line:#ffffff06;
+    color-scheme: dark;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;overflow:clip}
@@ -57,10 +59,17 @@
     font-family:var(--mono);font-size:10px;letter-spacing:0.12em;text-transform:uppercase;
     color:var(--faint);margin:0 0 9px;
   }
-  label.field{display:block;margin-bottom:10px}
-  label.field > span{display:block;font-size:11.5px;color:var(--muted);margin-bottom:4px}
+  .field{display:block;margin-bottom:10px}
+  .field > span{display:block;font-size:11.5px;color:var(--muted);margin-bottom:4px}
+  .label-row{display:flex;gap:8px;align-items:center}
+  .label-row input[type=text]{flex:1 1 auto;min-width:0}
+  .mini-toggle{position:relative;display:inline-flex;align-items:center;flex:0 0 auto;cursor:pointer}
+  .mini-toggle input{position:absolute;opacity:0;margin:0;inset:0;width:100%;height:100%;cursor:pointer}
+  .mini-toggle input:checked + .switch{background:var(--accent)}
+  .mini-toggle input:checked + .switch::after{transform:translateX(15px)}
+  .mini-toggle input:focus-visible + .switch{outline:2px solid var(--accent-weak);outline-offset:2px}
 
-  select, input[type=number]{
+  select, input[type=number], input[type=text]{
     width:100%;font-family:var(--sans);font-size:12.5px;color:var(--ink);
     background:var(--paper);border:1px solid var(--hair-strong);border-radius:6px;
     padding:6px 8px;appearance:none;
@@ -108,8 +117,23 @@
   .mult-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end;margin-bottom:10px}
   .mult-grid .field{margin:0}
   button.btn.mini{flex:0 0 auto;padding:6px 9px;font-family:var(--mono);font-size:11px;font-weight:500;height:31px}
+  /* fused multiplier control: number field + attached presets/reset caret menu */
+  .mult-fused{display:flex;align-items:stretch;background:var(--paper);
+    border:1px solid var(--hair-strong);border-radius:6px;overflow:hidden}
+  .mult-fused:focus-within{outline:2px solid var(--accent-weak);border-color:var(--accent)}
+  .mult-fused > input[type=number]{flex:1 1 auto;min-width:0;border:none;border-radius:0;
+    background:transparent;padding:6px 8px}
+  .mult-fused > input[type=number]:focus{outline:none}
+  .mf-caret{position:relative;flex:0 0 auto;display:flex;border-left:1px solid var(--hair-strong);background:var(--panel)}
+  .mf-caret::after{content:"▾";position:absolute;right:7px;top:50%;transform:translateY(-50%);
+    pointer-events:none;color:var(--muted);font-size:10px}
+  .mf-caret > select{width:30px;border:none;border-radius:0;background:transparent;color:transparent;
+    padding:0;cursor:pointer;-webkit-appearance:none;appearance:none}
+  .mf-caret > select:focus{outline:none}
+  .mf-caret > select option{color:var(--ink)}
   .hint-text{font-size:11px;color:var(--muted);margin:0 0 10px;line-height:1.4}
   .hint-text b{color:var(--ink);font-weight:600}
+  .subdiv{border-top:1px solid var(--hair);margin:16px 0 14px}
   /* series layer list */
   .muted-note{font-size:11.5px;color:var(--faint);margin:2px 0}
   .layer-row{display:flex;flex-direction:column;gap:5px;padding:7px 0;border-bottom:1px solid var(--hair)}
@@ -128,12 +152,16 @@
     color:var(--faint);font-size:16px;border-radius:4px;padding:0}
   .layer-del:hover{color:var(--accent);background:#c1572e14}
   /* hover tooltip */
-  .traj-tip{position:absolute;z-index:6;pointer-events:none;display:none;background:var(--panel);
+  .traj-tip{position:absolute;z-index:6;pointer-events:auto;display:none;background:var(--panel);
     border:1px solid var(--hair-strong);border-radius:7px;padding:7px 9px;box-shadow:0 4px 16px #00000018;
-    font-size:11px;max-width:230px}
+    font-size:11px;max-width:250px}
   .traj-tip .tt-name{font-weight:650;font-size:11.5px;margin-bottom:3px;color:var(--ink)}
   .traj-tip .tt-row{display:flex;gap:14px;justify-content:space-between;font-family:var(--mono);color:var(--ink)}
   .traj-tip .tt-row span{color:var(--faint)}
+  .traj-tip .tt-more{max-height:96px;overflow-y:auto;margin-top:4px;padding-top:4px;border-top:1px solid var(--hair);
+    scrollbar-width:thin;scrollbar-color:var(--hair-strong) transparent}
+  .traj-tip .tt-more::-webkit-scrollbar{width:7px}
+  .traj-tip .tt-more::-webkit-scrollbar-thumb{background:var(--hair-strong);border-radius:4px}
   .legend-box{position:absolute;z-index:5;display:none;box-sizing:border-box;
     background:var(--legend-bg);border:1px solid var(--hair);border-radius:6px;
     padding:6px 0;overflow-y:auto;overflow-x:hidden;backdrop-filter:blur(1px);
@@ -224,34 +252,54 @@
     <p class="tagline">A lightweight series plotter. Drag to pan, box to zoom, export for print.</p>
 
     <div class="group">
-      <p class="eyebrow">Axes</p>
-      <label class="field"><span>X axis data</span><select id="x-key"></select></label>
-      <div class="mult-grid">
-        <label class="field"><span>X scale ×</span><input type="number" id="x-mult" step="any" value="1"></label>
-        <label class="field"><span>X preset</span><select id="x-preset"></select></label>
-        <button class="btn mini" id="x-mult-reset" title="reset X multiplier to 1">Reset</button>
-      </div>
-      <label class="field"><span>Y axis data</span><select id="y-key"></select></label>
-      <div class="mult-grid">
-        <label class="field"><span>Y scale ×</span><input type="number" id="y-mult" step="any" value="1"></label>
-        <label class="field"><span>Y preset</span><select id="y-preset"></select></label>
-        <button class="btn mini" id="y-mult-reset" title="reset Y multiplier to 1">Reset</button>
-      </div>
-    </div>
-
-    <div class="group">
-      <p class="eyebrow">Grid</p>
-      <label class="toggle"><span>Gridlines</span>
-        <input type="checkbox" id="grid-toggle" checked><i class="switch"></i></label>
-    </div>
-
-    <div class="group">
       <p class="eyebrow">Style</p>
       <label class="toggle"><span>Dark mode</span>
         <input type="checkbox" id="dark-toggle"><i class="switch"></i></label>
+      <label class="toggle"><span>Gridlines</span>
+        <input type="checkbox" id="grid-toggle" checked><i class="switch"></i></label>
       <div class="swatch-grid">
         <div class="swatch"><label for="c-grid">Gridlines</label><input type="color" id="c-grid"></div>
         <div class="swatch"><label for="c-axis">Axes</label><input type="color" id="c-axis"></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Axes</p>
+      <label class="field"><span>X axis data</span><select id="x-key"></select></label>
+      <label class="field"><span>X scale ×</span>
+        <div class="mult-fused">
+          <input type="number" id="x-mult" step="any" value="1">
+          <span class="mf-caret"><select id="x-preset" aria-label="X axis presets and reset"></select></span>
+        </div></label>
+      <div class="subdiv"></div>
+      <label class="field"><span>Y axis data</span><select id="y-key"></select></label>
+      <label class="field"><span>Y scale ×</span>
+        <div class="mult-fused">
+          <input type="number" id="y-mult" step="any" value="1">
+          <span class="mf-caret"><select id="y-preset" aria-label="Y axis presets and reset"></select></span>
+        </div></label>
+    </div>
+
+    <div class="group">
+      <p class="eyebrow">Labels</p>
+      <div class="field"><span>Plot title</span>
+        <div class="label-row">
+          <input type="text" id="plot-title" placeholder="(auto: y vs x)">
+          <label class="mini-toggle" title="show / hide title on plot"><input type="checkbox" id="title-show" checked><i class="switch"></i></label>
+        </div></div>
+      <div class="field"><span>X axis label</span>
+        <div class="label-row">
+          <input type="text" id="x-label" placeholder="(auto)">
+          <label class="mini-toggle" title="show / hide X axis label on plot"><input type="checkbox" id="x-label-show" checked><i class="switch"></i></label>
+        </div></div>
+      <div class="field"><span>Y axis label</span>
+        <div class="label-row">
+          <input type="text" id="y-label" placeholder="(auto)">
+          <label class="mini-toggle" title="show / hide Y axis label on plot"><input type="checkbox" id="y-label-show" checked><i class="switch"></i></label>
+        </div></div>
+      <div class="bounds-grid" style="margin-top:12px">
+        <label class="field" style="margin:0"><span>Axis font (px)</span><input type="number" id="axis-font" min="7" max="40" step="1" value="14"></label>
+        <label class="field" style="margin:0"><span>Title font (px)</span><input type="number" id="title-font" min="8" max="48" step="1" value="20"></label>
       </div>
     </div>
 
@@ -279,6 +327,7 @@
         <button class="btn" id="load-file">Load file…</button>
       </div>
       <p class="hint-text">Drop a <b>.json</b> onto the plot, or embed from Python. Each layer carries named <b>series</b> arrays.</p>
+      <div class="subdiv"></div>
       <label class="toggle"><span>Legend</span>
         <input type="checkbox" id="legend-toggle"><i class="switch"></i></label>
       <label class="field" id="legend-loc-field" style="margin:2px 0 8px"><span>Legend position</span>
@@ -291,9 +340,11 @@
           <option value="bottom-right">bottom-right</option>
           <option value="custom">custom (drag)</option>
         </select></label>
+      <label class="field" style="margin:0 0 8px"><span>Legend font (px)</span><input type="number" id="legend-font" min="7" max="40" step="1" value="12"></label>
+      <div class="subdiv"></div>
       <label class="toggle" style="margin-bottom:8px"><span>Point markers</span>
         <input type="checkbox" id="markers-toggle"><i class="switch"></i></label>
-      <div id="layer-list"></div>
+      <div id="layer-list" style="margin-top:6px"></div>
       <input type="file" id="file-input" accept=".json,application/json" style="display:none">
     </div>
   </aside>
@@ -309,8 +360,8 @@
       <span class="tb-spacer"></span>
       <div class="tb-group">
         <label class="inline">Size
-          <input type="range" id="plot-size" min="0.4" max="1" step="0.01" value="0.95">
-          <span id="plot-size-val">95%</span>
+          <input type="range" id="plot-size" min="0.4" max="1" step="0.01" value="0.8">
+          <span id="plot-size-val">80%</span>
         </label>
       </div>
       <div class="tb-sep"></div>
@@ -359,7 +410,7 @@ const $ = id => document.getElementById(id);
 const PRISTINE_HTML = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
 
 const PAD = 14;                                   // outer padding of the plot area
-const AXM = { left:56, right:16, top:14, bottom:42 };   // axis margins (ticks + labels)
+const AXM = { left:72, right:18, top:34, bottom:50 };   // axis margins (title, ticks, labels)
 const FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
 // Unit-conversion presets for the axis multipliers. Selecting one fills the
@@ -386,9 +437,15 @@ const state = {
   xKey:null, yKey:null,     // selected series names for the axes (default: first / second)
   xMult:1, yMult:1,         // display multipliers (display value = raw × mult)
   xUnit:"", yUnit:"",       // optional unit label appended to the axis title
+  xLabel:null, yLabel:null, // axis-label overrides (null = auto "<key> (<unit>)")
+  title:null,               // plot-title override (null = auto "<y> vs <x>")
+  showTitle:true, showXLabel:true, showYLabel:true,   // show each on the plot
   xlim:null, ylim:null,     // [min,max] in DISPLAY units, or null = auto-fit to data
   showGrid:true,
-  plotSize:0.95,            // fraction of the canvas the plot fills
+  plotSize:0.80,           // fraction of the canvas the plot fills
+  axisFont:14,             // px — tick + axis-title text
+  legendFont:12,           // px — legend text
+  titleFont:20,            // px — plot title text
   mode:"pan",
   color:null,               // set from the active theme's palette just below (single source)
   layers:[],                // series layers: {id,name,series:{key:[...]},style}
@@ -405,9 +462,9 @@ const state = {
 const LIGHT_STYLE = { grid:"#e4e0d6", axis:"#6f6a60" };
 const DARK_STYLE  = { grid:"#28323b", axis:"#7d8c97" };
 const THEME = {
-  light:{ palette:LIGHT_STYLE, frame:"#3a3733", figureBg:"#ffffff",
-          legendBg:"#ffffff", legendBorder:"#e7e4dc", legendInk:"#20201d", legendScroll:"#cfcabf" },
-  dark: { palette:DARK_STYLE,  frame:"#8b97a1", figureBg:"#10161d",
+  light:{ palette:LIGHT_STYLE, frame:"#000000", plotBg:"#ffffff", plotBorder:"#bdb6a8", figureBg:"#ffffff",
+          legendBg:"#ffffff", legendBorder:"#cfcabf", legendInk:"#20201d", legendScroll:"#cfcabf" },
+  dark: { palette:DARK_STYLE,  frame:"#9aa6b0", plotBg:"#10161d", plotBorder:"#42525e", figureBg:"#10161d",
           legendBg:"#19222b", legendBorder:"#33414c", legendInk:"#e8eaed", legendScroll:"#3f4d58" },
 };
 state.color = { ...THEME[state.theme].palette };
@@ -454,6 +511,26 @@ function axisExtent(key, mult){
 }
 function axisTitle(key, unit){ return key ? (unit ? `${key} (${unit})` : key) : ""; }
 
+// Effective labels: a user override if set, otherwise the auto "<key> (<unit>)".
+// The plot title auto-defaults to "<y> vs <x>" built from those labels.
+function effXLabel(){ return state.xLabel!=null ? state.xLabel : axisTitle(state.xKey, state.xUnit); }
+function effYLabel(){ return state.yLabel!=null ? state.yLabel : axisTitle(state.yKey, state.yUnit); }
+function autoTitle(){ return (state.yKey || state.xKey) ? `${effYLabel()} vs ${effXLabel()}` : ""; }
+function effTitle(){ return state.title!=null ? state.title : autoTitle(); }
+// Text actually drawn on the plot (empty string = hidden via its toggle).
+function titleText(){ return state.showTitle ? effTitle() : ""; }
+function xLabelText(){ return state.showXLabel ? effXLabel() : ""; }
+function yLabelText(){ return state.showYLabel ? effYLabel() : ""; }
+
+// Shared canvas for measuring text width at an arbitrary px size (used to place
+// the rotated y-axis title clear of the tick numbers).
+let _measCtx = null;
+function measureText(s, fontPx){
+  if(!_measCtx) _measCtx = document.createElement("canvas").getContext("2d");
+  _measCtx.font = `${fontPx}px ${FONT}`;
+  return _measCtx.measureText(String(s)).width;
+}
+
 /* ============================================================================
    LEGEND GEOMETRY  (shared by screen overlay, export, figure-bounds, dragging)
    ========================================================================== */
@@ -462,14 +539,14 @@ let _lgMeasureCtx = null;
 function legendTextWidth(s){
   if(!_lgMeasureCtx){
     _lgMeasureCtx = document.createElement("canvas").getContext("2d");
-    _lgMeasureCtx.font = '11px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   }
+  _lgMeasureCtx.font = `${state.legendFont}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
   return _lgMeasureCtx.measureText(s).width;
 }
 function legendMetrics(){
   const items = legendItems();
   if(!state.showLegend || !items.length) return null;
-  const pad=8, sw=22, textGap=6, lh=16, gap=18;
+  const pad=8, sw=22, textGap=6, lh=state.legendFont+5, gap=18;
   const chrome = pad + sw + textGap + pad;
   const scrollGutter = 12, slack = 8;
   const textW = items.reduce((m,L)=>Math.max(m, legendTextWidth(L.name)), 0);
@@ -500,8 +577,8 @@ function legendBox(mode){
   const avail = (outside || custom) ? mapH : Math.max(40, mapH - 2*LEGEND_INSET);
   const h = (mode==="full" && outside) ? m.boxH : Math.min(m.boxH, avail);
   let x, y;
-  if(loc==="right-outside"){ x = mapR + m.gap; y = mapT; }
-  else if(loc==="left-outside"){ x = mapL - m.gap - w; y = mapT; }
+  if(loc==="right-outside"){ const pr=plotRect(); x = pr.x + pr.w + m.gap; y = mapT; }
+  else if(loc==="left-outside"){ const pr=plotRect(); x = pr.x - m.gap - w; y = mapT; }
   else if(custom){
     x = mapL + loc[0]*mapW; y = mapT + loc[1]*mapH;
     x = Math.max(0, Math.min(W - w, x)); y = Math.max(0, Math.min(H - h, y));
@@ -558,6 +635,7 @@ const svg = d3.select("#map");
 const defs = svg.append("defs");
 const clip = defs.append("clipPath").attr("id","frame-clip").append("path");
 const gRoot = svg.append("g");
+const elPlotBg = gRoot.append("rect").attr("class","plot-bg").attr("stroke","none");
 const gGrid = gRoot.append("g").attr("class","grid");
 const gAxes = gRoot.append("g").attr("class","axes");
 const gClipped = gRoot.append("g").attr("clip-path","url(#frame-clip)");
@@ -577,10 +655,35 @@ function requestRender(){
 /* ============================================================================
    RENDER
    ========================================================================== */
+// Fixed spacings used to lay out the left (y) margin.
+const Y_TICK_GAP = 10;    // axis line -> tick number (right edge)
+const Y_TITLE_GAP = 9;    // leftmost tick number -> y-axis title (fixed)
+const LEFT_BUFFER = 12;   // y-axis title -> left edge of the white plot area
+
+// Derive plot margins from the data each render. The left margin grows with the
+// width of the y tick numbers so the y-axis title keeps a *fixed* gap from them
+// and a constant white buffer stays to its left (preserved even at 100% size).
+function computeLayout(r){
+  const af=state.axisFont, tf=Math.max(8,af), titleH=af+1;
+  const topM = titleText() ? (state.titleFont + 16) : 16;
+  const botM = (tf + 22) + (xLabelText() ? (af + 18) : 0);   // tick numbers + (x title)
+  const rightM = 18;
+  // y ticks depend only on the vertical range, so measure them before the left margin
+  const iy0 = r.y + topM, iy1 = Math.max(iy0+10, r.y + r.h - botM);
+  const ydom = state.ylim || axisExtent(state.yKey, state.yMult);
+  const fmt = d3.format("~g");
+  let maxYW = 0;
+  d3.scaleLinear().domain(ydom).range([iy1, iy0]).ticks(7)
+    .forEach(t=> maxYW=Math.max(maxYW, measureText(fmt(t), tf)));
+  const leftM = Y_TICK_GAP + maxYW + (yLabelText() ? (Y_TITLE_GAP + titleH) : 0) + LEFT_BUFFER;
+  return { topM, botM, leftM, rightM, maxYW, af, tf, titleH };
+}
+
 function render(){
   const r = plotRect();
-  const ix0=r.x+AXM.left, ix1=Math.max(r.x+AXM.left+10, r.x+r.w-AXM.right);
-  const iy0=r.y+AXM.top,  iy1=Math.max(r.y+AXM.top+10, r.y+r.h-AXM.bottom);
+  const L = computeLayout(r);
+  const ix0=r.x+L.leftM, ix1=Math.max(r.x+L.leftM+10, r.x+r.w-L.rightM);
+  const iy0=r.y+L.topM,  iy1=Math.max(r.y+L.topM+10, r.y+r.h-L.botM);
   const xdom = state.xlim || axisExtent(state.xKey, state.xMult);
   const ydom = state.ylim || axisExtent(state.yKey, state.yMult);
   const xScale = d3.scaleLinear().domain(xdom).range([ix0, ix1]);
@@ -589,7 +692,19 @@ function render(){
   frameBox = [[ix0,iy0],[ix1,iy1]];
 
   clip.attr("d", `M${ix0},${iy0}H${ix1}V${iy1}H${ix0}Z`);
-  drawAxes(xScale, yScale, ix0, ix1, iy0, iy1);
+  // White plot background spans the whole plot rect — data box plus the margins
+  // that hold the title, axis labels and tick numbers — and is extended to cover
+  // the legend so outside/dragged placements sit on white (not the page margin).
+  let bx0=r.x, by0=r.y, bx1=r.x+r.w, by1=r.y+r.h;
+  if(state.showLegend && legendItems().length){
+    const lb=legendBox(), p=8;
+    bx0=Math.min(bx0, lb.x-p); by0=Math.min(by0, lb.y-p);
+    bx1=Math.max(bx1, lb.x+lb.w+p); by1=Math.max(by1, lb.y+lb.h+p);
+  }
+  elPlotBg.attr("x",bx0).attr("y",by0).attr("width",bx1-bx0).attr("height",by1-by0)
+          .attr("fill",THEME[state.theme].plotBg)
+          .attr("stroke",THEME[state.theme].plotBorder).attr("stroke-width",1).attr("rx",2);
+  drawAxes(xScale, yScale, ix0, ix1, iy0, iy1, L);
   elFrame.attr("x",ix0).attr("y",iy0).attr("width",ix1-ix0).attr("height",iy1-iy0)
          .attr("stroke",THEME[state.theme].frame).attr("stroke-width",1.1);
 
@@ -602,8 +717,9 @@ function render(){
   updatePngDims();
 }
 
-function drawAxes(xScale, yScale, ix0, ix1, iy0, iy1){
+function drawAxes(xScale, yScale, ix0, ix1, iy0, iy1, L){
   const th = THEME[state.theme], col = state.color;
+  const af = state.axisFont, tf = Math.max(8, af);
   const fmt = d3.format("~g");
   const xticks = xScale.ticks(8), yticks = yScale.ticks(7);
 
@@ -622,21 +738,33 @@ function drawAxes(xScale, yScale, ix0, ix1, iy0, iy1){
   xticks.forEach(t=>{ const x=xScale(t);
     gAxes.append("line").attr("x1",x).attr("x2",x).attr("y1",iy1).attr("y2",iy1+5)
          .attr("stroke",col.axis).attr("stroke-width",1);
-    gAxes.append("text").attr("x",x).attr("y",iy1+17).attr("text-anchor","middle")
-         .attr("font-family",FONT).attr("font-size",10.5).attr("fill",th.legendInk).text(fmt(t)); });
+    gAxes.append("text").attr("x",x).attr("y",iy1+12+tf).attr("text-anchor","middle")
+         .attr("font-family",FONT).attr("font-size",tf).attr("fill",th.legendInk).text(fmt(t)); });
   // y ticks + labels (left)
   yticks.forEach(t=>{ const y=yScale(t);
     gAxes.append("line").attr("x1",ix0-5).attr("x2",ix0).attr("y1",y).attr("y2",y)
          .attr("stroke",col.axis).attr("stroke-width",1);
-    gAxes.append("text").attr("x",ix0-9).attr("y",y+3.5).attr("text-anchor","end")
-         .attr("font-family",FONT).attr("font-size",10.5).attr("fill",th.legendInk).text(fmt(t)); });
-  // axis titles
-  gAxes.append("text").attr("x",(ix0+ix1)/2).attr("y",iy1+35).attr("text-anchor","middle")
-       .attr("font-family",FONT).attr("font-size",11.5).attr("font-weight",600)
-       .attr("fill",th.legendInk).text(axisTitle(state.xKey, state.xUnit));
-  gAxes.append("text").attr("transform",`translate(${ix0-42},${(iy0+iy1)/2}) rotate(-90)`).attr("text-anchor","middle")
-       .attr("font-family",FONT).attr("font-size",11.5).attr("font-weight",600)
-       .attr("fill",th.legendInk).text(axisTitle(state.yKey, state.yUnit));
+    gAxes.append("text").attr("x",ix0-Y_TICK_GAP).attr("y",y+tf*0.34).attr("text-anchor","end")
+         .attr("font-family",FONT).attr("font-size",tf).attr("fill",th.legendInk).text(fmt(t)); });
+  // axis titles (overridable + toggleable)
+  const r = plotRect();
+  const xl = xLabelText();
+  if(xl) gAxes.append("text").attr("x",(ix0+ix1)/2).attr("y",iy1+L.botM-12).attr("text-anchor","middle")
+       .attr("font-family",FONT).attr("font-size",af+1).attr("font-weight",600)
+       .attr("fill",th.legendInk).text(xl);
+  // y-title sits a FIXED distance left of the widest tick number (measured in L.maxYW)
+  const yl = yLabelText();
+  if(yl){
+    const yTitleX = ix0 - Y_TICK_GAP - L.maxYW - Y_TITLE_GAP - L.titleH/2;
+    gAxes.append("text").attr("transform",`translate(${yTitleX},${(iy0+iy1)/2}) rotate(-90)`).attr("text-anchor","middle")
+       .attr("font-family",FONT).attr("font-size",af+1).attr("font-weight",600)
+       .attr("fill",th.legendInk).text(yl);
+  }
+  // plot title (centered above the data box, within the top margin / white area)
+  const ttl = titleText();
+  if(ttl) gAxes.append("text").attr("x",(ix0+ix1)/2).attr("y",r.y+L.topM-12).attr("text-anchor","middle")
+       .attr("font-family",FONT).attr("font-size",state.titleFont).attr("font-weight",650)
+       .attr("fill",th.legendInk).text(ttl);
 }
 
 // Live "what pixels will the PNG be" hint = the snapshot figure box × scale.
@@ -685,7 +813,7 @@ function renderTrajectories(xScale, yScale){
     let marks = g.selectAll("circle").data(L.style.markers ? pts.filter(Boolean) : []);
     marks.exit().remove();
     marks.enter().append("circle").merge(marks)
-      .attr("r", L.style.markerSize||2).attr("fill", L.style.color)
+      .attr("r", L.style.markerSize||3).attr("fill", L.style.color)
       .attr("cx",d=>d[0]).attr("cy",d=>d[1]);
   });
 }
@@ -700,6 +828,7 @@ function renderLegend(){
   box.style.top  = lb.y + "px";
   box.style.width = lb.w + "px";
   box.style.maxHeight = lb.avail + "px";
+  box.style.fontSize = state.legendFont + "px";
   box.title = "Drag to move · double-click to reset";
   box.innerHTML = "";
   m.items.forEach(L=>{
@@ -750,14 +879,14 @@ function drawSvgLegend(mode){
   const items = g.append("g").attr("clip-path", "url(#lg-clip)")
                  .append("g").attr("transform", `translate(0,${-offset})`);
   m.items.forEach((L,i)=>{
-    const yy = m.pad + i*m.lh + 8;
+    const yy = m.pad + i*m.lh + m.lh/2 + 1;
     const ds = dashFor(L.style.dash, L.style.width);
     const ln = items.append("line").attr("x1",m.pad).attr("y1",yy).attr("x2",m.pad+m.sw).attr("y2",yy)
      .attr("stroke",L.style.color).attr("stroke-width", Math.max(2,L.style.width))
      .attr("stroke-linecap", ds.cap);
     if(ds.dash) ln.attr("stroke-dasharray", ds.dash);
-    items.append("text").attr("x",m.pad+m.sw+m.textGap).attr("y",yy+3.5)
-     .attr("font-family","ui-sans-serif,system-ui").attr("font-size",11).attr("fill",th.legendInk)
+    items.append("text").attr("x",m.pad+m.sw+m.textGap).attr("y",yy+state.legendFont*0.34)
+     .attr("font-family","ui-sans-serif,system-ui").attr("font-size",state.legendFont).attr("fill",th.legendInk)
      .text(L.name);
   });
   if(scrollable){
@@ -785,10 +914,10 @@ function normalizeLayer(raw, idx){
     series,
     style: {
       color: style.color || LAYER_PALETTE[idx % LAYER_PALETTE.length],
-      width: style.width!=null ? +style.width : 1.5,
+      width: style.width!=null ? +style.width : 2.5,
       opacity: style.opacity!=null ? +style.opacity : 1,
       markers: !!style.markers,
-      markerSize: style.markerSize || 2,
+      markerSize: style.markerSize || 3,
       dash: ["dash","dot","long-dash","long-dash-dot"].includes(style.dash) ? style.dash : "solid",
       visible: style.visible!==false,
     },
@@ -806,7 +935,7 @@ function loadLayers(spec, append){
   state.layers = append ? state.layers.concat(norm) : norm;
   ensureAxisKeys();
   populateAxisSelectors();
-  render(); renderLayerList(); syncLimitFields();
+  render(); renderLayerList(); syncLabelFields(); syncLimitFields();
   return true;
 }
 
@@ -815,7 +944,10 @@ function currentConfig(){
   return {
     xKey:state.xKey, yKey:state.yKey, xMult:state.xMult, yMult:state.yMult,
     xUnit:state.xUnit, yUnit:state.yUnit, xlim:state.xlim, ylim:state.ylim,
+    xLabel:state.xLabel, yLabel:state.yLabel, title:state.title,
+    showTitle:state.showTitle, showXLabel:state.showXLabel, showYLabel:state.showYLabel,
     showGrid:state.showGrid, plotSize:state.plotSize, color:{...state.color},
+    axisFont:state.axisFont, legendFont:state.legendFont, titleFont:state.titleFont,
     showLegend:state.showLegend, legendLoc:state.legendLoc, theme:state.theme,
   };
 }
@@ -827,10 +959,19 @@ function applyConfig(cfg){
   if(cfg.yMult!=null) state.yMult=cfg.yMult;
   if("xUnit" in cfg) state.xUnit=cfg.xUnit||"";
   if("yUnit" in cfg) state.yUnit=cfg.yUnit||"";
+  if("xLabel" in cfg) state.xLabel=cfg.xLabel;
+  if("yLabel" in cfg) state.yLabel=cfg.yLabel;
+  if("title" in cfg) state.title=cfg.title;
+  if("showTitle" in cfg) state.showTitle=!!cfg.showTitle;
+  if("showXLabel" in cfg) state.showXLabel=!!cfg.showXLabel;
+  if("showYLabel" in cfg) state.showYLabel=!!cfg.showYLabel;
   if("xlim" in cfg) state.xlim=cfg.xlim;
   if("ylim" in cfg) state.ylim=cfg.ylim;
   if("showGrid" in cfg) state.showGrid=!!cfg.showGrid;
   if("plotSize" in cfg) state.plotSize=cfg.plotSize;
+  if(cfg.axisFont!=null) state.axisFont=cfg.axisFont;
+  if(cfg.legendFont!=null) state.legendFont=cfg.legendFont;
+  if(cfg.titleFont!=null) state.titleFont=cfg.titleFont;
   if(cfg.color) Object.assign(state.color, cfg.color);
   if(cfg.theme){ applyTheme(cfg.theme); if(!cfg.color) state.color={...THEME[state.theme].palette}; }
   if("showLegend" in cfg) state.showLegend=!!cfg.showLegend;
@@ -881,12 +1022,27 @@ function syncControlsFromState(){
   populateAxisSelectors();
   $("x-mult").value=state.xMult; $("y-mult").value=state.yMult;
   $("grid-toggle").checked=state.showGrid;
+  $("axis-font").value=state.axisFont; $("legend-font").value=state.legendFont; $("title-font").value=state.titleFont;
   $("plot-size").value=state.plotSize; $("plot-size-val").textContent=Math.round(state.plotSize*100)+"%";
   $("legend-toggle").checked=state.showLegend;
   syncLegendLocControl();
   $("dark-toggle").checked=state.theme==="dark";
   syncColorInputs();
+  syncLabelFields();
   syncLimitFields();
+}
+// Reflect the label/title overrides into the fields, and show the live auto
+// value as each field's placeholder.
+function syncLabelFields(){
+  $("x-label").value = state.xLabel!=null ? state.xLabel : "";
+  $("x-label").placeholder = axisTitle(state.xKey, state.xUnit) || "(auto)";
+  $("y-label").value = state.yLabel!=null ? state.yLabel : "";
+  $("y-label").placeholder = axisTitle(state.yKey, state.yUnit) || "(auto)";
+  $("plot-title").value = state.title!=null ? state.title : "";
+  $("plot-title").placeholder = autoTitle() || "(auto: y vs x)";
+  $("title-show").checked = state.showTitle;
+  $("x-label-show").checked = state.showXLabel;
+  $("y-label-show").checked = state.showYLabel;
 }
 function loadText(text, append){
   let spec; try{ spec=JSON.parse(text); }
@@ -916,13 +1072,19 @@ function buildTrajIndex(){
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])); }
 function fmtVal(v){ return Number.isFinite(v) ? (Math.abs(v)>=1e4||(Math.abs(v)<1e-3&&v!==0) ? v.toExponential(3) : +v.toFixed(4)) : v; }
 function showTip(hit, px, py){
-  const L=hit.L, i=hit.i;
-  let html = `<div class="tt-name">${escapeHtml(L.name)}</div>`;
-  const order = [state.xKey, state.yKey, ...Object.keys(L.series).filter(k=>k!==state.xKey&&k!==state.yKey)];
-  for(const k of order){
-    const arr=L.series[k]; if(!arr || i>=arr.length) continue;
-    const mult = k===state.xKey?state.xMult : k===state.yKey?state.yMult : 1;
-    html += `<div class="tt-row"><span>${escapeHtml(k)}</span>${escapeHtml(String(fmtVal(arr[i]*mult)))}</div>`;
+  const L=hit.L, i=hit.i, xk=state.xKey, yk=state.yKey;
+  const fx = L.series[xk] ? fmtVal(L.series[xk][i]*state.xMult) : "—";
+  const fy = L.series[yk] ? fmtVal(L.series[yk][i]*state.yMult) : "—";
+  let html = `<div class="tt-name">${escapeHtml(L.name)}</div>`
+    + `<div class="tt-row"><span>${escapeHtml(xk)} (x)</span>${escapeHtml(String(fx))}</div>`
+    + `<div class="tt-row"><span>${escapeHtml(yk)} (y)</span>${escapeHtml(String(fy))}</div>`;
+  // every other series goes in a scrollable block so the tooltip stays compact
+  const others = Object.keys(L.series).filter(k=>k!==xk && k!==yk);
+  if(others.length){
+    html += `<div class="tt-more">` + others.map(k=>{
+      const arr=L.series[k]; if(!arr || i>=arr.length) return "";
+      return `<div class="tt-row"><span>${escapeHtml(k)}</span>${escapeHtml(String(fmtVal(arr[i])))}</div>`;
+    }).join("") + `</div>`;
   }
   const el=$("traj-tip");
   el.innerHTML=html; el.style.display="block";
@@ -1030,7 +1192,17 @@ function finishGesture(ev){
 mapNode.addEventListener("pointerup", finishGesture);
 mapNode.addEventListener("pointercancel", finishGesture);
 mapNode.addEventListener("dblclick", ev=> zoomAt(1.8, ptr(ev)));
-mapNode.addEventListener("pointerleave", ()=>{ hideTip(); $("st-x").textContent="—"; $("st-y").textContent="—"; });
+mapNode.addEventListener("pointerleave", ev=>{
+  $("st-x").textContent="—"; $("st-y").textContent="—";
+  const tip=$("traj-tip");
+  // moving from the plot onto the tooltip itself: keep it so its extra rows scroll
+  if(ev.relatedTarget===tip || (tip.contains && tip.contains(ev.relatedTarget))) return;
+  hideTip();
+});
+$("traj-tip").addEventListener("pointerleave", ev=>{
+  if(ev.relatedTarget===mapNode) return;   // back onto the plot — map logic takes over
+  hideTip();
+});
 
 /* ============================================================================
    AXIS LIMITS  (manual entry, in display units)
@@ -1062,9 +1234,11 @@ function autoFit(){ state.xlim=null; state.ylim=null; render(); syncLimitFields(
    AXIS SELECTION + MULTIPLIERS
    ========================================================================== */
 function setXKey(k){ state.xKey=k; state.xMult=1; state.xUnit=""; state.xlim=null;
-  $("x-mult").value=1; $("x-preset").value=""; render(); syncLimitFields(); }
+  state.xLabel=null; state.title=null;                       // labels/title revert to auto
+  $("x-mult").value=1; $("x-preset").value=""; syncLabelFields(); render(); syncLimitFields(); }
 function setYKey(k){ state.yKey=k; state.yMult=1; state.yUnit=""; state.ylim=null;
-  $("y-mult").value=1; $("y-preset").value=""; render(); syncLimitFields(); }
+  state.yLabel=null; state.title=null;
+  $("y-mult").value=1; $("y-preset").value=""; syncLabelFields(); render(); syncLimitFields(); }
 // Changing a multiplier rescales any explicit limit by the same ratio, so the
 // view stays put and only the tick numbers (and unit) change.
 function setXMult(m, unit){
@@ -1072,14 +1246,14 @@ function setXMult(m, unit){
   const old=state.xMult||1, ratio=m/old;
   if(state.xlim) state.xlim=state.xlim.map(v=>v*ratio);
   state.xMult=m; if(unit!==undefined) state.xUnit=unit;
-  $("x-mult").value=m; render(); syncLimitFields();
+  $("x-mult").value=m; syncLabelFields(); render(); syncLimitFields();
 }
 function setYMult(m, unit){
   if(!isFinite(m) || m===0) return;
   const old=state.yMult||1, ratio=m/old;
   if(state.ylim) state.ylim=state.ylim.map(v=>v*ratio);
   state.yMult=m; if(unit!==undefined) state.yUnit=unit;
-  $("y-mult").value=m; render(); syncLimitFields();
+  $("y-mult").value=m; syncLabelFields(); render(); syncLimitFields();
 }
 
 /* ============================================================================
@@ -1097,12 +1271,21 @@ $("x-key").addEventListener("change", e=> setXKey(e.target.value));
 $("y-key").addEventListener("change", e=> setYKey(e.target.value));
 $("x-mult").addEventListener("input", e=>{ setXMult(parseFloat(e.target.value), ""); $("x-preset").value=""; });
 $("y-mult").addEventListener("input", e=>{ setYMult(parseFloat(e.target.value), ""); $("y-preset").value=""; });
-$("x-preset").addEventListener("change", e=>{ const i=+e.target.value; if(MULT_PRESETS[i]){ setXMult(MULT_PRESETS[i].k, MULT_PRESETS[i].unit); } e.target.value=""; });
-$("y-preset").addEventListener("change", e=>{ const i=+e.target.value; if(MULT_PRESETS[i]){ setYMult(MULT_PRESETS[i].k, MULT_PRESETS[i].unit); } e.target.value=""; });
-$("x-mult-reset").addEventListener("click", ()=>{ setXMult(1, ""); $("x-preset").value=""; });
-$("y-mult-reset").addEventListener("click", ()=>{ setYMult(1, ""); $("y-preset").value=""; });
+$("x-preset").addEventListener("change", e=>{ const v=e.target.value; if(v==="reset") setXMult(1); else { const i=+v; if(MULT_PRESETS[i]) setXMult(MULT_PRESETS[i].k); } e.target.value=""; });
+$("y-preset").addEventListener("change", e=>{ const v=e.target.value; if(v==="reset") setYMult(1); else { const i=+v; if(MULT_PRESETS[i]) setYMult(MULT_PRESETS[i].k); } e.target.value=""; });
 
 $("grid-toggle").addEventListener("change", e=>{ state.showGrid=e.target.checked; render(); });
+$("axis-font").addEventListener("input", e=>{ const v=parseInt(e.target.value,10); if(v>=6&&v<=40){ state.axisFont=v; render(); } });
+$("title-font").addEventListener("input", e=>{ const v=parseInt(e.target.value,10); if(v>=6&&v<=60){ state.titleFont=v; render(); } });
+$("legend-font").addEventListener("input", e=>{ const v=parseInt(e.target.value,10); if(v>=6&&v<=40){ state.legendFont=v; render(); } });
+$("plot-title").addEventListener("input", e=>{ state.title = e.target.value!=="" ? e.target.value : null; render(); });
+$("x-label").addEventListener("input", e=>{ state.xLabel = e.target.value!=="" ? e.target.value : null;
+  $("plot-title").placeholder = autoTitle() || "(auto: y vs x)"; render(); });
+$("y-label").addEventListener("input", e=>{ state.yLabel = e.target.value!=="" ? e.target.value : null;
+  $("plot-title").placeholder = autoTitle() || "(auto: y vs x)"; render(); });
+$("title-show").addEventListener("change", e=>{ state.showTitle=e.target.checked; render(); });
+$("x-label-show").addEventListener("change", e=>{ state.showXLabel=e.target.checked; render(); });
+$("y-label-show").addEventListener("change", e=>{ state.showYLabel=e.target.checked; render(); });
 $("plot-size").addEventListener("input", e=>{
   state.plotSize = parseFloat(e.target.value)||1;
   $("plot-size-val").textContent = Math.round(state.plotSize*100)+"%";
@@ -1232,12 +1415,16 @@ Object.keys(colorMap).forEach(id=>{
 
 function resetView(){
   state.xlim=null; state.ylim=null;
-  state.showGrid=true; state.plotSize=0.95;
+  state.showGrid=true; state.plotSize=0.80;
+  state.axisFont=14; state.legendFont=12; state.titleFont=20;
+  state.xLabel=null; state.yLabel=null; state.title=null;
+  state.showTitle=true; state.showXLabel=true; state.showYLabel=true;
   state.color={...THEME[state.theme].palette};
   state.legendLoc="right-outside";
   $("grid-toggle").checked=true;
-  $("plot-size").value=0.95; $("plot-size-val").textContent="95%";
-  syncLegendLocControl(); syncColorInputs();
+  $("plot-size").value=0.80; $("plot-size-val").textContent="80%";
+  $("axis-font").value=14; $("legend-font").value=12; $("title-font").value=20;
+  syncLegendLocControl(); syncColorInputs(); syncLabelFields();
   render(); syncLimitFields();
 }
 $("reset").addEventListener("click", resetView);
@@ -1296,7 +1483,9 @@ new ResizeObserver(()=>resize()).observe($("wrap"));
 (function init(){
   // populate the multiplier preset dropdowns
   ["x-preset","y-preset"].forEach(id=>{
-    const sel=$(id); const o0=document.createElement("option"); o0.value=""; o0.textContent="preset…"; sel.appendChild(o0);
+    const sel=$(id);
+    const o0=document.createElement("option"); o0.value=""; o0.textContent="presets…"; sel.appendChild(o0);
+    const oR=document.createElement("option"); oR.value="reset"; oR.textContent="↺  reset to ×1"; sel.appendChild(oR);
     MULT_PRESETS.forEach((p,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=p.label; sel.appendChild(o); });
   });
   const r=$("wrap").getBoundingClientRect();
@@ -1308,7 +1497,7 @@ new ResizeObserver(()=>resize()).observe($("wrap"));
   if(tag && tag.textContent.trim()){
     try{ loadLayers(JSON.parse(tag.textContent)); }catch(e){ console.warn("embedded plot2d-data is not valid JSON", e); }
   }
-  render(); renderLayerList(); syncLimitFields();
+  render(); renderLayerList(); syncLabelFields(); syncLimitFields();
 })();
 </script>
 </body>

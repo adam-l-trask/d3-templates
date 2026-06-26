@@ -341,7 +341,12 @@ def embed(template_path, layers, out_path=None, config=None,
             ``xMult``/``yMult`` (display multipliers), ``xUnit``/``yUnit`` (unit
             labels appended to the axis titles), ``xlim``/``ylim`` (``[min, max]``
             in display units, i.e. after the multiplier; omit for auto-fit),
-            ``showGrid``, ``plotSize``, ``color`` (``{"grid": ..., "axis": ...}``),
+            ``xLabel``/``yLabel`` (axis-label overrides; omit/``None`` = auto
+            ``"<key> (<unit>)"``), ``title`` (plot-title override; omit/``None``
+            = auto ``"<y> vs <x>"``),
+            ``showGrid``, ``plotSize`` (fraction of the canvas the plot fills;
+            the template defaults to 0.8), ``axisFont`` and ``legendFont`` (text
+            sizes in px), ``color`` (``{"grid": ..., "axis": ...}``),
             ``showLegend``, ``theme`` (``"light"`` or ``"dark"``) and
             ``legendLoc``. ``legendLoc`` is the legend placement: a named string
             — ``"right-outside"`` or ``"left-outside"`` (reserves a strip beside
