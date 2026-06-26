@@ -127,10 +127,10 @@
   .mf-caret{position:relative;flex:0 0 auto;display:flex;border-left:1px solid var(--hair-strong);background:var(--panel)}
   .mf-caret::after{content:"▾";position:absolute;right:7px;top:50%;transform:translateY(-50%);
     pointer-events:none;color:var(--muted);font-size:10px}
-  .mf-caret > select{width:30px;border:none;border-radius:0;background:transparent;color:transparent;
+  .mf-caret > select{width:30px;border:none;border-radius:0;background:var(--panel);color:transparent;
     padding:0;cursor:pointer;-webkit-appearance:none;appearance:none}
   .mf-caret > select:focus{outline:none}
-  .mf-caret > select option{color:var(--ink)}
+  .mf-caret > select option{color:var(--ink);background:var(--panel)}
   .hint-text{font-size:11px;color:var(--muted);margin:0 0 10px;line-height:1.4}
   .hint-text b{color:var(--ink);font-weight:600}
   .subdiv{border-top:1px solid var(--hair);margin:16px 0 14px}
@@ -162,6 +162,17 @@
     scrollbar-width:thin;scrollbar-color:var(--hair-strong) transparent}
   .traj-tip .tt-more::-webkit-scrollbar{width:7px}
   .traj-tip .tt-more::-webkit-scrollbar-thumb{background:var(--hair-strong);border-radius:4px}
+  /* pinned (persistent, data-anchored) tooltips */
+  .pin{position:absolute;z-index:6;background:var(--panel);border:1px solid var(--hair-strong);
+    border-radius:7px;padding:6px 9px;box-shadow:0 4px 14px #0000001f;font-size:11px;
+    cursor:move;user-select:none;-webkit-user-select:none;min-width:84px;touch-action:none}
+  .pin.dragging{border-color:var(--accent);box-shadow:0 6px 18px #00000033}
+  .pin-name{font-weight:650;font-size:11px;margin:0 16px 3px 0;color:var(--ink);white-space:nowrap}
+  .pin-row{display:flex;gap:12px;justify-content:space-between;font-family:var(--mono);color:var(--ink)}
+  .pin-row .pin-k{color:var(--faint)}
+  .pin-close{position:absolute;top:2px;right:3px;border:none;background:none;cursor:pointer;
+    color:var(--faint);font-size:14px;line-height:1;padding:1px 3px;border-radius:4px}
+  .pin-close:hover{color:var(--accent);background:#c1572e14}
   .legend-box{position:absolute;z-index:5;display:none;box-sizing:border-box;
     background:var(--legend-bg);border:1px solid var(--hair);border-radius:6px;
     padding:6px 0;overflow-y:auto;overflow-x:hidden;backdrop-filter:blur(1px);
@@ -392,7 +403,7 @@
       <span><span class="k">x</span> <b id="st-x">—</b></span>
       <span><span class="k">y</span> <b id="st-y">—</b></span>
       <span><span class="k">series</span> <b id="st-n">0</b></span>
-      <span class="hint">drag to pan · box mode or shift-drag to zoom · double-click to zoom in</span>
+      <span class="hint">drag to pan · click a point to pin · box/shift-drag to zoom · double-click to zoom in</span>
     </div>
   </main>
 
@@ -412,6 +423,7 @@ const PRISTINE_HTML = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
 const PAD = 14;                                   // outer padding of the plot area
 const AXM = { left:72, right:18, top:34, bottom:50 };   // axis margins (title, ticks, labels)
 const FONT = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+const PIN_DOT_R = 5.5;   // anchor-dot radius for pinned points (larger than data markers)
 
 // Unit-conversion presets for the axis multipliers. Selecting one fills the
 // numeric × field and sets the axis unit label; a custom number clears the unit.
@@ -450,6 +462,7 @@ const state = {
   color:null,               // set from the active theme's palette just below (single source)
   layers:[],                // series layers: {id,name,series:{key:[...]},style}
   showLegend:false,
+  pins:[],                  // pinned tooltips: {id, layerId, i, dx, dy} (dx,dy = px offset of box from anchor)
   legendLoc:"right-outside",   // named string OR [nx,ny] normalized custom position
   theme:"light",
 };
@@ -611,22 +624,19 @@ function mapLeftRight(){
   if(frameBox) return [frameBox[0][0], frameBox[1][0]];
   return [r.x+AXM.left, r.x+r.w-AXM.right];
 }
-function figureRect(){
+function figureBounds(legendMode){
   const r=plotRect(), m=legendMetrics();
-  if(!m) return { x:r.x, y:r.y, w:r.w, h:r.h };
-  const lb=legendBox("full");
-  const left=Math.min(r.x, lb.x-PAD), right=Math.max(r.x+r.w, lb.x+lb.w+PAD);
-  const top=Math.min(r.y, lb.y-PAD), bottom=Math.max(r.y+r.h, lb.y+lb.h+PAD);
+  let left=r.x, right=r.x+r.w, top=r.y, bottom=r.y+r.h;
+  if(m){ const lb=legendBox(legendMode);
+    left=Math.min(left, lb.x-PAD); right=Math.max(right, lb.x+lb.w+PAD);
+    top=Math.min(top, lb.y-PAD);  bottom=Math.max(bottom, lb.y+lb.h+PAD); }
+  const pb=pinsBBox();          // keep pinned tooltips inside the exported figure
+  if(pb){ left=Math.min(left, pb.x0-PAD); right=Math.max(right, pb.x1+PAD);
+    top=Math.min(top, pb.y0-PAD);  bottom=Math.max(bottom, pb.y1+PAD); }
   return { x:left, y:top, w:right-left, h:bottom-top };
 }
-function figureRectView(){
-  const r=plotRect(), m=legendMetrics();
-  if(!m) return { x:r.x, y:r.y, w:r.w, h:r.h };
-  const lb=legendBox("view");
-  const left=Math.min(r.x, lb.x-PAD), right=Math.max(r.x+r.w, lb.x+lb.w+PAD);
-  const top=Math.min(r.y, lb.y-PAD), bottom=Math.max(r.y+r.h, lb.y+lb.h+PAD);
-  return { x:left, y:top, w:right-left, h:bottom-top };
-}
+function figureRect(){ return figureBounds("full"); }
+function figureRectView(){ return figureBounds("view"); }
 
 /* ============================================================================
    SVG SCAFFOLD  (built once; render() updates attrs)
@@ -641,6 +651,7 @@ const gAxes = gRoot.append("g").attr("class","axes");
 const gClipped = gRoot.append("g").attr("clip-path","url(#frame-clip)");
 const gTraj = gClipped.append("g").attr("class","traj");
 const elFrame = gRoot.append("rect").attr("fill","none");
+const gPins = gRoot.append("g").attr("class","pins");
 const gLegend = gRoot.append("g").attr("class","legend");
 const elRubber = svg.append("rect").attr("class","rubber").style("display","none");
 
@@ -710,6 +721,7 @@ function render(){
 
   renderTrajectories(xScale, yScale);
   renderLegend();
+  renderPins();
   trajDirty = true;
 
   $("st-n").textContent = drawableLayers().length;
@@ -935,6 +947,16 @@ function loadLayers(spec, append){
   state.layers = append ? state.layers.concat(norm) : norm;
   ensureAxisKeys();
   populateAxisSelectors();
+  if(!append){                         // restore pins saved in the config (by layer index)
+    clearPins();
+    if(_pendingPins){
+      for(const pp of _pendingPins){
+        const L=state.layers[pp.layer];
+        if(L) state.pins.push({ id:"P"+(pinSeq++), layerId:L.id, i:pp.i, dx:pp.dx, dy:pp.dy });
+      }
+    }
+    _pendingPins=null;
+  }
   render(); renderLayerList(); syncLabelFields(); syncLimitFields();
   return true;
 }
@@ -949,6 +971,8 @@ function currentConfig(){
     showGrid:state.showGrid, plotSize:state.plotSize, color:{...state.color},
     axisFont:state.axisFont, legendFont:state.legendFont, titleFont:state.titleFont,
     showLegend:state.showLegend, legendLoc:state.legendLoc, theme:state.theme,
+    pins: state.pins.map(p=>{ const idx=state.layers.findIndex(l=>l.id===p.layerId);
+      return idx<0 ? null : { layer:idx, i:p.i, dx:p.dx, dy:p.dy }; }).filter(Boolean),
   };
 }
 function applyConfig(cfg){
@@ -976,6 +1000,7 @@ function applyConfig(cfg){
   if(cfg.theme){ applyTheme(cfg.theme); if(!cfg.color) state.color={...THEME[state.theme].palette}; }
   if("showLegend" in cfg) state.showLegend=!!cfg.showLegend;
   if(cfg.legendLoc) state.legendLoc=cfg.legendLoc;
+  _pendingPins = ("pins" in cfg) ? cfg.pins : null;
   syncControlsFromState();
 }
 function applyTheme(theme){
@@ -1096,6 +1121,150 @@ function showTip(hit, px, py){
 function hideTip(){ const el=$("traj-tip"); if(el) el.style.display="none"; }
 
 /* ============================================================================
+   PINNED TOOLTIPS  (persistent, anchored to a data point, draggable)
+   A pin stores {layerId, i} plus a pixel offset (dx,dy) of its label box from
+   the anchor. It is re-projected every render, so multipliers / limits / pan /
+   zoom move it; it hides when its point leaves the view, and is cleared when
+   the x or y series changes.
+   ========================================================================== */
+let pinSeq = 0;
+const pinEls = new Map();   // pin.id -> {box, name, xk, yk, xv, yv}
+let pinDrag = null;
+let _pendingPins = null;    // pins from a loaded config, restored once layers exist
+
+function pinAnchor(pin){
+  if(!lastScales) return null;
+  const L = state.layers.find(l=>l.id===pin.layerId);
+  if(!L || !L.style.visible) return null;
+  const xs=L.series[state.xKey], ys=L.series[state.yKey];
+  if(!xs || !ys || pin.i>=Math.min(xs.length, ys.length)) return null;
+  const xv=xs[pin.i]*state.xMult, yv=ys[pin.i]*state.yMult;
+  if(!Number.isFinite(xv) || !Number.isFinite(yv)) return null;
+  const {xScale,yScale,ix0,ix1,iy0,iy1}=lastScales;
+  const X=xScale(xv), Y=yScale(yv);
+  const inside = X>=ix0 && X<=ix1 && Y>=iy0 && Y<=iy1;
+  return { x:X, y:Y, inside, L, xv, yv };
+}
+
+function createPinEl(pin){
+  const box=document.createElement("div"); box.className="pin";
+  const close=document.createElement("button"); close.className="pin-close"; close.textContent="×"; close.title="remove";
+  const name=document.createElement("div"); name.className="pin-name";
+  const r1=document.createElement("div"); r1.className="pin-row";
+  const xk=document.createElement("span"); xk.className="pin-k"; const xv=document.createElement("span");
+  const r2=document.createElement("div"); r2.className="pin-row";
+  const yk=document.createElement("span"); yk.className="pin-k"; const yv=document.createElement("span");
+  r1.append(xk,xv); r2.append(yk,yv);
+  box.append(close,name,r1,r2);
+  $("wrap").appendChild(box);
+  close.addEventListener("click", ev=>{ ev.stopPropagation(); removePin(pin.id); });
+  box.addEventListener("pointerdown", ev=>{
+    if(ev.target===close) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const wr=$("wrap").getBoundingClientRect();
+    pinDrag={ pin, gx:(ev.clientX-wr.left)-box.offsetLeft, gy:(ev.clientY-wr.top)-box.offsetTop };
+    box.classList.add("dragging");
+    try{ box.setPointerCapture(ev.pointerId); }catch(e){}
+  });
+  box.addEventListener("pointermove", ev=>{
+    if(!pinDrag || pinDrag.pin!==pin) return;
+    const a=pinAnchor(pin); if(!a) return;
+    const wr=$("wrap").getBoundingClientRect();
+    const nx=(ev.clientX-wr.left)-pinDrag.gx, ny=(ev.clientY-wr.top)-pinDrag.gy;
+    pin.dx = nx - a.x; pin.dy = ny - a.y;
+    renderPins();
+  });
+  function endDrag(ev){ if(pinDrag && pinDrag.pin===pin){ pinDrag=null; box.classList.remove("dragging");
+    try{ box.releasePointerCapture(ev.pointerId); }catch(e){} } }
+  box.addEventListener("pointerup", endDrag);
+  box.addEventListener("pointercancel", endDrag);
+  return { box, name, xk, yk, xv, yv };
+}
+
+function renderPins(){
+  // drop pins whose layer was deleted
+  state.pins = state.pins.filter(p=> state.layers.some(l=>l.id===p.layerId));
+  gPins.selectAll("*").remove();
+  const seen=new Set();
+  for(const pin of state.pins){
+    let rec=pinEls.get(pin.id);
+    if(!rec){ rec=createPinEl(pin); pinEls.set(pin.id, rec); }
+    seen.add(pin.id);
+    const a=pinAnchor(pin);
+    if(!a || !a.inside){ rec.box.style.display="none"; continue; }
+    rec.name.textContent=a.L.name;
+    rec.xk.textContent=state.xKey; rec.xv.textContent=fmtVal(a.xv);
+    rec.yk.textContent=state.yKey; rec.yv.textContent=fmtVal(a.yv);
+    rec.box.style.display="block";
+    let bx=a.x+pin.dx, by=a.y+pin.dy;
+    const bw=rec.box.offsetWidth, bh=rec.box.offsetHeight;
+    bx=Math.max(2, Math.min(W-bw-2, bx));
+    by=Math.max(2, Math.min(H-bh-2, by));
+    rec.box.style.left=bx+"px"; rec.box.style.top=by+"px";
+    gPins.append("line").attr("x1",a.x).attr("y1",a.y).attr("x2",bx).attr("y2",by)
+      .attr("stroke",THEME[state.theme].frame).attr("stroke-width",0.8).attr("stroke-opacity",0.45);
+    gPins.append("circle").attr("cx",a.x).attr("cy",a.y).attr("r",PIN_DOT_R)
+      .attr("fill",a.L.style.color).attr("stroke",THEME[state.theme].plotBg).attr("stroke-width",1.6);
+  }
+  for(const [id,rec] of pinEls){ if(!seen.has(id)){ rec.box.remove(); pinEls.delete(id); } }
+}
+
+// Draw pins into the SVG for export (the live label boxes are HTML overlays, so
+// they don't appear in serialized SVG/PNG; this redraws them as SVG).
+function drawSvgPins(){
+  gPins.selectAll("*").remove();
+  const th=THEME[state.theme], fz=11, padX=9;
+  for(const pin of state.pins){
+    const a=pinAnchor(pin); if(!a || !a.inside) continue;
+    const rec=pinEls.get(pin.id); if(!rec || rec.box.style.display==="none") continue;
+    const bx=parseFloat(rec.box.style.left)||0, by=parseFloat(rec.box.style.top)||0;
+    const bw=rec.box.offsetWidth, bh=rec.box.offsetHeight;
+    gPins.append("line").attr("x1",a.x).attr("y1",a.y).attr("x2",bx).attr("y2",by)
+      .attr("stroke",th.frame).attr("stroke-width",0.8).attr("stroke-opacity",0.45);
+    gPins.append("circle").attr("cx",a.x).attr("cy",a.y).attr("r",PIN_DOT_R)
+      .attr("fill",a.L.style.color).attr("stroke",th.plotBg).attr("stroke-width",1.6);
+    gPins.append("rect").attr("x",bx).attr("y",by).attr("width",bw).attr("height",bh)
+      .attr("rx",7).attr("fill",th.legendBg).attr("stroke",th.legendBorder);
+    gPins.append("text").attr("x",bx+padX).attr("y",by+15).attr("font-family",FONT)
+      .attr("font-size",fz).attr("font-weight",650).attr("fill",th.legendInk).text(a.L.name);
+    [[state.xKey,a.xv],[state.yKey,a.yv]].forEach(([k,v],r)=>{
+      const ry=by+30+r*15;
+      gPins.append("text").attr("x",bx+padX).attr("y",ry).attr("font-family",FONT)
+        .attr("font-size",fz).attr("fill",th.legendInk).attr("fill-opacity",0.55).text(k);
+      gPins.append("text").attr("x",bx+bw-padX).attr("y",ry).attr("text-anchor","end")
+        .attr("font-family",FONT).attr("font-size",fz).attr("fill",th.legendInk).text(fmtVal(v));
+    });
+  }
+}
+// Bounding box of all on-screen pins (anchor dots + label boxes), for export sizing.
+function pinsBBox(){
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity,any=false;
+  for(const pin of state.pins){
+    const a=pinAnchor(pin); if(!a || !a.inside) continue;
+    const rec=pinEls.get(pin.id); if(!rec || rec.box.style.display==="none") continue;
+    const bx=parseFloat(rec.box.style.left)||0, by=parseFloat(rec.box.style.top)||0;
+    const bw=rec.box.offsetWidth, bh=rec.box.offsetHeight;
+    x0=Math.min(x0,a.x,bx); y0=Math.min(y0,a.y,by);
+    x1=Math.max(x1,a.x,bx+bw); y1=Math.max(y1,a.y,by+bh); any=true;
+  }
+  return any ? {x0,y0,x1,y1} : null;
+}
+
+function addPin(layerId, i){ state.pins.push({ id:"P"+(pinSeq++), layerId, i, dx:16, dy:-20 }); render(); }
+function removePin(id){ const rec=pinEls.get(id); if(rec){ rec.box.remove(); pinEls.delete(id); }
+  state.pins=state.pins.filter(p=>p.id!==id); render(); }
+function clearPins(){ pinEls.forEach(rec=>rec.box.remove()); pinEls.clear(); state.pins=[]; }
+// Click a point to pin it; click an already-pinned point to remove its pin.
+function tryTogglePin(p){
+  if(!state.layers.length) return;
+  if(trajDirty) buildTrajIndex();
+  const hit = trajQuad ? trajQuad.find(p[0], p[1], 10) : null;
+  if(!hit) return;
+  const j = state.pins.findIndex(pn=> pn.layerId===hit.L.id && pn.i===hit.i);
+  if(j>=0) removePin(state.pins[j].id); else addPin(hit.L.id, hit.i);
+}
+
+/* ============================================================================
    POINTER INTERACTION  (Cartesian pan / box-zoom / double-click zoom)
    ========================================================================== */
 const mapNode = $("map");
@@ -1111,11 +1280,12 @@ function commitDomains(){
 
 function startPan(p){
   commitDomains();
-  gesture = { kind:"pan", p0:p, sc:lastScales,
+  gesture = { kind:"pan", p0:p, sc:lastScales, moved:false,
               xdom:lastScales.xScale.domain().slice(), ydom:lastScales.yScale.domain().slice() };
 }
 function movePan(p){
   if(!gesture) return;
+  if(!gesture.moved && Math.hypot(p[0]-gesture.p0[0], p[1]-gesture.p0[1])>3) gesture.moved=true;
   const sc=gesture.sc;
   const dxd = sc.xScale.invert(gesture.p0[0]) - sc.xScale.invert(p[0]);
   const dyd = sc.yScale.invert(gesture.p0[1]) - sc.yScale.invert(p[1]);
@@ -1154,6 +1324,7 @@ function zoomAt(factor, p){
 
 mapNode.addEventListener("pointerdown", ev=>{
   ev.preventDefault();
+  if(clickPinTimer){ clearTimeout(clickPinTimer); clickPinTimer=null; }   // a 2nd press cancels a pending pin (dblclick/drag)
   mapNode.setPointerCapture(ev.pointerId);
   const p = ptr(ev);
   const boxMode = state.mode==="box" || ev.shiftKey;
@@ -1182,16 +1353,27 @@ mapNode.addEventListener("pointermove", ev=>{
 function finishGesture(ev){
   if(!dragging) return;
   const p = ptr(ev);
-  const kind = gesture && gesture.kind;
+  const g = gesture, kind = g && g.kind;
   if(kind==="box") endBox(p);
   dragging=false; gesture=null;
   mapNode.classList.remove("panning","boxing");
   render();
-  if(kind==="pan") syncLimitFields();
+  if(kind==="pan"){
+    if(g.moved) syncLimitFields();
+    else scheduleClickPin(p);     // a click (no drag) → pin/unpin the point under it
+  }
+}
+let clickPinTimer=null;
+function scheduleClickPin(p){
+  if(clickPinTimer) clearTimeout(clickPinTimer);
+  clickPinTimer=setTimeout(()=>{ clickPinTimer=null; tryTogglePin(p); }, 200);
 }
 mapNode.addEventListener("pointerup", finishGesture);
 mapNode.addEventListener("pointercancel", finishGesture);
-mapNode.addEventListener("dblclick", ev=> zoomAt(1.8, ptr(ev)));
+mapNode.addEventListener("dblclick", ev=>{
+  if(clickPinTimer){ clearTimeout(clickPinTimer); clickPinTimer=null; }   // don't pin on a double-click
+  zoomAt(1.8, ptr(ev));
+});
 mapNode.addEventListener("pointerleave", ev=>{
   $("st-x").textContent="—"; $("st-y").textContent="—";
   const tip=$("traj-tip");
@@ -1234,10 +1416,10 @@ function autoFit(){ state.xlim=null; state.ylim=null; render(); syncLimitFields(
    AXIS SELECTION + MULTIPLIERS
    ========================================================================== */
 function setXKey(k){ state.xKey=k; state.xMult=1; state.xUnit=""; state.xlim=null;
-  state.xLabel=null; state.title=null;                       // labels/title revert to auto
+  state.xLabel=null; state.title=null; clearPins();             // pins are tied to the axes
   $("x-mult").value=1; $("x-preset").value=""; syncLabelFields(); render(); syncLimitFields(); }
 function setYKey(k){ state.yKey=k; state.yMult=1; state.yUnit=""; state.ylim=null;
-  state.yLabel=null; state.title=null;
+  state.yLabel=null; state.title=null; clearPins();
   $("y-mult").value=1; $("y-preset").value=""; syncLabelFields(); render(); syncLimitFields(); }
 // Changing a multiplier rescales any explicit limit by the same ratio, so the
 // view stays put and only the tick numbers (and unit) change.
@@ -1433,8 +1615,10 @@ $("reset").addEventListener("click", resetView);
 function serializeSVG(mode){
   const r = mode==="view" ? figureRectView() : figureRect();
   drawSvgLegend(mode);
+  drawSvgPins();                       // render pinned tooltips as SVG so they export
   const clone = mapNode.cloneNode(true);
   gLegend.selectAll("*").remove();
+  renderPins();                        // restore the live (HTML-backed) pin overlays
   clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
   clone.setAttribute("width", Math.round(r.w)); clone.setAttribute("height", Math.round(r.h));
   clone.setAttribute("viewBox", `${r.x} ${r.y} ${r.w} ${r.h}`);
